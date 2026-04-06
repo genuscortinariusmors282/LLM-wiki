@@ -1,94 +1,145 @@
-# LLM-wiki
+# LLM Wiki
 
-这仓库不是又一个“知识管理理念帖”，它是可落地的模板。
+You've been here before:
 
-基线范式来自 Karpathy 那套思路，但这里把它收成了可复用的工程化做法：
+- New session. AI remembers nothing. You spend 20 minutes re-explaining.
+- "What did we decide about the pricing formula?" Buried in a 3-hour chat log.
+- Five docs in Notion, three in Google Drive, two Excel files on desktop. Which one is current?
 
-- `compile-first`
-- `writeback` 必做
-- 中等规模先 `wiki`，不先上重 `RAG`
-- Obsidian 可替换，范式不可替换
-- `Idea / Intent` 优先于 `Code`
+This repo fixes that. Not with another knowledge management theory post, but with a drop-in engineering practice that works across AI platforms.
 
-## 这仓库放什么
+---
 
-- [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md)
-- [skills/knowledge-system-bootstrap](./skills/knowledge-system-bootstrap)
+## The Idea
 
-## 你该怎么用
+Baseline from [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): the correct way to use LLMs is not Q&A, it's **compilation**.
 
-### 0. 最省事的用法
+```
+raw/  (PDFs, Excel, client docs — immutable source material)
+  ↓  LLM compiles
+wiki/ (markdown — current consensus, continuously updated)
+  ↓  LLM generates
+code/ (the execution layer — a compiled artifact, not the truth)
+```
 
-如果你的朋友用的是 Codex，直接对 AI 说这句就行：
+Five rules:
+
+1. **Compile-first** — Don't just answer. Write conclusions into wiki pages.
+2. **Writeback is mandatory** — Every decision goes back to the wiki. Every single one.
+3. **Wiki before RAG** — Under ~100 docs, LLM reads directly. No vector DB needed.
+4. **Obsidian is replaceable, the paradigm is not** — The engine is LLM + filesystem + markdown.
+5. **Ideas outrank Code** — Your wiki of decisions and formulas is worth more than the code it generates.
+
+---
+
+## Works With Any AI
+
+| Platform | Config File | Status |
+|----------|------------|--------|
+| Claude Code | `CLAUDE.md` | Full template in UNIVERSAL.md |
+| Codex | `AGENTS.md` | Native skill + template |
+| Cursor | `.cursorrules` | Template in UNIVERSAL.md |
+| Windsurf | `.windsurfrules` | Template in UNIVERSAL.md |
+| ChatGPT | Manual paste | Workflow in UNIVERSAL.md |
+
+**Just send your AI this link and tell it to read `UNIVERSAL.md`:**
 
 ```text
-Use $skill-installer to install https://github.com/Ss1024sS/LLM-wiki/tree/main/skills/knowledge-system-bootstrap, then use it to scaffold my project knowledge system.
+Read https://github.com/Ss1024sS/LLM-wiki/blob/main/UNIVERSAL.md and set up the knowledge system for this project.
 ```
 
-这不是理论，我已经真测过，能装。
+---
 
-### 1. 读 playbook
+## What's In This Repo
 
-先看：
+```
+LLM-wiki/
+├── UNIVERSAL.md                    # Start here. Platform-agnostic setup guide.
+├── docs/
+│   └── knowledge-system-playbook.md  # Full rationale and operating model
+├── examples/
+│   └── demo-project/               # What a bootstrapped project looks like
+│       ├── CLAUDE.md
+│       ├── docs/wiki/              # 5 wiki pages with real content
+│       └── manifests/raw_sources.csv
+├── skills/
+│   └── knowledge-system-bootstrap/  # Codex skill for automated scaffolding
+│       ├── SKILL.md
+│       ├── scripts/bootstrap_knowledge_system.py
+│       └── agents/openai.yaml
+└── scripts/
+    └── install-codex-skill.sh
+```
 
-- [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md)
+---
 
-它讲清楚：
+## Quick Start
 
-- 为什么 raw 不该全塞 Git
-- 为什么中等规模项目先上 wiki，不先上重 RAG
-- 什么叫 `raw -> wiki -> code`
+### Option A: Tell your AI to do it
 
-### 2. 安装 skill
+```text
+Read https://github.com/Ss1024sS/LLM-wiki/blob/main/UNIVERSAL.md and set up the knowledge system for this project.
+```
 
-把这个目录复制到你本机 Codex skills 目录：
+Works with Claude Code, Codex, Cursor, Windsurf.
+
+### Option B: Run the bootstrap script
 
 ```bash
-mkdir -p ~/.codex/skills
-cp -R skills/knowledge-system-bootstrap ~/.codex/skills/knowledge-system-bootstrap
+git clone https://github.com/Ss1024sS/LLM-wiki.git
+python3 LLM-wiki/skills/knowledge-system-bootstrap/scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
 ```
 
-如果你已经 clone 了这个 repo，还可以一键跑：
+Generates wiki structure, manifests, validation scripts, and agent config in one command.
+
+### Option C: Install as Codex skill
+
+```text
+Use $skill-installer to install https://github.com/Ss1024sS/LLM-wiki/tree/main/skills/knowledge-system-bootstrap
+```
+
+Or manually:
 
 ```bash
 bash scripts/install-codex-skill.sh
 ```
 
-它会调用 Codex 自带的 `skill-installer` 脚本，从这个 GitHub repo 直接安装。
+---
 
-### 3. 用 skill 起一个新项目
+## How Do I Know It's Working?
 
-skill 里的脚手架会帮你生成：
+After 3 sessions, check:
 
-- `AGENTS.md`
-- `docs/wiki/*`
-- `manifests/raw_sources.csv`
-- `scripts/wiki_check.py`
-- `scripts/raw_manifest_check.py`
-- `scripts/init_raw_root.py`
-- `scripts/export_memory_repo.py`
+- [ ] `docs/wiki/log.md` has 3 entries
+- [ ] `docs/wiki/current-status.md` reflects actual project state
+- [ ] AI can answer "what did we do last time?" without you re-explaining
+- [ ] Decisions from session 1 are still accessible in session 3
 
-核心命令在 skill 里：
+See `examples/demo-project/` for what a healthy wiki looks like after a few sessions.
 
-```bash
-python3 scripts/bootstrap_knowledge_system.py /path/to/new-repo "My New Project"
-```
+---
 
-### 4. 真正的默认结构
+## Don't Do These Things
 
-- GitHub private repo：`code + wiki + manifests + verified cases`
-- 本地 raw 仓：`pdf/xlsx/xls/rar/图片/客户原件`
-- memory repo：只放编译后的长期记忆，不放 raw 本体
+- Don't put raw PDFs/XLSX into Git. That's a binary junk pile, not version control.
+- Don't treat chat history as memory. It evaporates.
+- Don't build a RAG pipeline before your raw docs are even organized.
+- Don't change code without updating the wiki. That's incomplete work.
 
-## 别干的蠢事
+---
 
-- 别把全量 PDF/XLSX 当成 Git 主仓
-- 别把聊天上下文当长期记忆
-- 别还没编译 raw 就先上重 RAG
-- 别只改代码不回写 wiki
+## Read More
 
-## 结论
+- [UNIVERSAL.md](./UNIVERSAL.md) — Platform-agnostic setup guide with templates for every AI
+- [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md) — Full rationale, GitHub/raw split strategy, operating model
+- [examples/demo-project/](./examples/demo-project/) — What a bootstrapped project actually looks like
 
-这不是 Obsidian 教程，也不是 RAG 教程。
+---
 
-这是把项目知识变成生产线的办法。
+## License
+
+MIT. Use it, fork it, adapt it.
+
+## Credits
+
+Paradigm from [Andrej Karpathy](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). Engineering practice by [Ss1024sS](https://github.com/Ss1024sS).

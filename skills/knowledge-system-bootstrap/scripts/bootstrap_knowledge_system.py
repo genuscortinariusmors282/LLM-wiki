@@ -414,6 +414,34 @@ def main() -> int:
 
 只改代码不回写 wiki，算没做完。
 """,
+        target / "CLAUDE.md": f"""# {project_name} — Claude Rules
+
+## Knowledge System
+This project uses a wiki-first knowledge system. Knowledge lives in `docs/wiki/`, not in chat history.
+
+## Session Protocol (mandatory)
+
+### Session Start
+1. Read `docs/wiki/index.md` — get the full page list
+2. Read `docs/wiki/current-status.md` — know where things stand
+3. Read `docs/wiki/log.md` — understand recent session history
+4. Read additional wiki pages as needed for the current task
+
+### During Work
+- New decision made → update the relevant wiki page immediately
+- New raw document discovered → register in `manifests/raw_sources.csv`, compile key info into wiki
+- Task completed → update `docs/wiki/current-status.md`
+
+### Session End
+1. Append one line to `docs/wiki/log.md`: date, topic, key outcomes
+2. Update `docs/wiki/current-status.md` with latest state
+3. If context is running low → generate `CONTINUATION-SUMMARY.md`
+
+### Rules
+- compile-first: don't just answer, write conclusions into wiki pages
+- writeback is mandatory: if you learned something durable, it goes in the wiki
+- raw files (PDF/XLSX/images) stay outside Git, only manifests go in
+""",
         target / "docs" / "wiki" / "README.md": f"""# {project_name} Wiki
 
 这套 wiki 解决三个问题：
@@ -522,6 +550,23 @@ GitHub 里只保留 manifest 和编译结果。
         target / "scripts" / "raw_manifest_check.py": RAW_MANIFEST_CHECK,
         target / "scripts" / "init_raw_root.py": INIT_RAW_ROOT.format(raw_root_name=raw_root_name),
         target / "scripts" / "export_memory_repo.py": EXPORT_MEMORY_REPO,
+        target / ".cursorrules": f"""This project ({project_name}) uses a wiki-first knowledge system.
+
+Before starting any non-trivial task:
+1. Read docs/wiki/index.md for the wiki page list
+2. Read docs/wiki/current-status.md for project state
+3. Read docs/wiki/log.md for recent session history
+
+After completing work:
+- Update docs/wiki/current-status.md with new state
+- Append a log entry to docs/wiki/log.md (date | topic | outcome)
+- If a durable decision was made, write it into the relevant wiki page
+
+Rules:
+- Compile raw documents into wiki pages, don't just reference them
+- Every conclusion goes back into the wiki (writeback is mandatory)
+- Raw files (PDF/XLSX) stay outside Git, only manifests/ indexes go in
+""",
         target / ".gitignore": ".obsidian/\\nraw/\\nraw_local/\\nraw_vault/\\n",
     }
 
