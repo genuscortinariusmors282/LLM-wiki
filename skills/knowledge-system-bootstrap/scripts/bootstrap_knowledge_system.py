@@ -1,0 +1,552 @@
+from __future__ import annotations
+
+import argparse
+import re
+from datetime import date
+from pathlib import Path
+
+
+def slugify(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    return value.strip("_") or "project"
+
+
+WIKI_CHECK = """from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = ROOT / "docs" / "wiki"
+
+REQUIRED_FILES = [
+    "README.md",
+    "SCHEMA.md",
+    "index.md",
+    "log.md",
+    "project-overview.md",
+    "current-status.md",
+    "sources-and-data.md",
+    "github-and-raw-strategy.md",
+]
+
+LINK_RE = re.compile(r"\\[[^\\]]+\\]\\(([^)]+)\\)")
+LOG_HEADER_RE = re.compile(r"^## \\[\\d{4}-\\d{2}-\\d{2}\\] .+ \\| .+$")
+
+
+def resolve_link(source_file: Path, target: str) -> Path | None:
+    if target.startswith(("http://", "https://", "mailto:")):
+        return None
+    if target.startswith("#"):
+        return None
+    target = target.split("#", 1)[0]
+    if not target:
+        return None
+    return (source_file.parent / target).resolve()
+
+
+def main() -> int:
+    errors: list[str] = []
+    if not WIKI_ROOT.exists():
+        print("wiki_check: docs/wiki does not exist")
+        return 1
+
+    for rel in REQUIRED_FILES:
+        path = WIKI_ROOT / rel
+        if not path.exists():
+            errors.append(f"missing required file: docs/wiki/{rel}")
+
+    md_files = sorted(WIKI_ROOT.rglob("*.md"))
+    index_text = (WIKI_ROOT / "index.md").read_text(encoding="utf-8") if (WIKI_ROOT / "index.md").exists() else ""
+
+    for path in md_files:
+        text = path.read_text(encoding="utf-8")
+        if path.name == "log.md":
+            headers = [line for line in text.splitlines() if line.startswith("## ")]
+            for header in headers:
+                if not LOG_HEADER_RE.match(header):
+                    errors.append(f"bad log header format in {path.relative_to(ROOT)}: {header}")
+
+        rel = path.relative_to(WIKI_ROOT).as_posix()
+        if path.name != "index.md" and rel not in {"README.md", "SCHEMA.md", "log.md"}:
+            if rel not in index_text:
+                errors.append(f"index.md does not reference docs/wiki/{rel}")
+
+        for match in LINK_RE.finditer(text):
+            raw_target = match.group(1).strip()
+            resolved = resolve_link(path, raw_target)
+            if resolved is None:
+                continue
+            if not resolved.exists():
+                errors.append(f"broken link in {path.relative_to(ROOT)} -> {raw_target}")
+
+    if errors:
+        print("wiki_check: FAILED")
+        for item in errors:
+            print(f"- {item}")
+        return 1
+
+    print("wiki_check: OK")
+    print(f"- markdown files: {len(md_files)}")
+    print(f"- required files: {len(REQUIRED_FILES)}")
+    print(f"- wiki root: {WIKI_ROOT}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
+RAW_MANIFEST_CHECK = """from __future__ import annotations
+
+import csv
+import os
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "manifests" / "raw_sources.csv"
+EXPECTED_COLUMNS = [
+    "source_id",
+    "company",
+    "vendor",
+    "kind",
+    "filename",
+    "raw_rel_path",
+    "status",
+    "compiled_into",
+    "notes",
+]
+ALLOWED_STATUS = {"new", "indexed", "compiled_to_wiki", "compiled_to_rulebook", "compiled_to_verified_cases", "archived"}
+
+
+def main() -> int:
+    errors: list[str] = []
+    if not MANIFEST.exists():
+        print(f"raw_manifest_check: missing {MANIFEST}")
+        return 1
+
+    raw_root_env = os.environ.get("PROJECT_RAW_ROOT")
+    raw_root = Path(raw_root_env).expanduser().resolve() if raw_root_env else None
+
+    with MANIFEST.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != EXPECTED_COLUMNS:
+            errors.append(f"manifest columns mismatch: expected {EXPECTED_COLUMNS}, got {reader.fieldnames}")
+        seen_ids: set[str] = set()
+        for idx, row in enumerate(reader, start=2):
+            source_id = (row.get("source_id") or "").strip()
+            filename = (row.get("filename") or "").strip()
+            raw_rel_path = (row.get("raw_rel_path") or "").strip()
+            status = (row.get("status") or "").strip()
+            compiled_into = (row.get("compiled_into") or "").strip()
+
+            if not source_id:
+                errors.append(f"row {idx}: empty source_id")
+            elif source_id in seen_ids:
+                errors.append(f"row {idx}: duplicate source_id {source_id}")
+            else:
+                seen_ids.add(source_id)
+
+            if not filename:
+                errors.append(f"row {idx}: empty filename")
+            if not raw_rel_path:
+                errors.append(f"row {idx}: empty raw_rel_path")
+            if status not in ALLOWED_STATUS:
+                errors.append(f"row {idx}: bad status {status}")
+
+            if raw_root and raw_rel_path:
+                candidate = (raw_root / raw_rel_path).resolve()
+                if not candidate.exists():
+                    errors.append(f"row {idx}: missing local raw file {candidate}")
+
+            if status.startswith("compiled") and not compiled_into:
+                errors.append(f"row {idx}: status {status} requires compiled_into")
+
+    if errors:
+        print("raw_manifest_check: FAILED")
+        for item in errors:
+            print(f"- {item}")
+        return 1
+
+    print("raw_manifest_check: OK")
+    print(f"- manifest: {MANIFEST}")
+    if raw_root:
+        print(f"- PROJECT_RAW_ROOT: {raw_root}")
+    else:
+        print("- PROJECT_RAW_ROOT: not set, existence checks skipped")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
+INIT_RAW_ROOT = """from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RAW_ROOT = (ROOT.parent / "{raw_root_name}").resolve()
+
+DIRS = [
+    "inbox",
+    "internal_sources",
+    "external_sources",
+    "customer_answers",
+    "screenshots",
+    "extracted_text",
+    "archive",
+]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Initialize the local raw root directory.")
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=os.environ.get("PROJECT_RAW_ROOT", str(DEFAULT_RAW_ROOT)),
+        help="Absolute or relative path for the local raw root",
+    )
+    args = parser.parse_args()
+
+    raw_root = Path(args.path).expanduser().resolve()
+    raw_root.mkdir(parents=True, exist_ok=True)
+
+    for rel in DIRS:
+        (raw_root / rel).mkdir(parents=True, exist_ok=True)
+
+    print(f"Initialized raw root: {{raw_root}}")
+    for rel in DIRS:
+        print(f"- {{raw_root / rel}}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+
+EXPORT_MEMORY_REPO = """from __future__ import annotations
+
+import argparse
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+COPY_FILES = [
+    "AGENTS.md",
+    "scripts/wiki_check.py",
+    "scripts/raw_manifest_check.py",
+    "scripts/init_raw_root.py",
+]
+
+COPY_DIRS = [
+    ("docs/wiki", "docs/wiki"),
+    ("manifests", "manifests"),
+]
+
+OPTIONAL_COPY_DIRS = [
+    ("verified_cases", "verified_cases"),
+    ("backend/verified_cases", "verified_cases"),
+]
+
+
+def wipe_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def copy_file(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+
+
+def copy_dir(src: Path, dest: Path) -> None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Export the repo memory surface into a dedicated GitHub/wiki repo checkout.")
+    parser.add_argument("target_dir", help="Target memory repo checkout directory")
+    args = parser.parse_args()
+
+    target = Path(args.target_dir).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    managed_paths = [
+        target / "AGENTS.md",
+        target / "README.md",
+        target / "docs",
+        target / "manifests",
+        target / "verified_cases",
+        target / "scripts",
+    ]
+    for path in managed_paths:
+        wipe_path(path)
+
+    exported_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    readme = f\"\"\"# Memory Repo
+
+This repo is the exported long-term memory surface for a project.
+
+## What belongs here
+
+- `docs/wiki/`
+- `manifests/`
+- `verified_cases/`
+- repo-level operating rules such as `AGENTS.md`
+
+## What does not belong here
+
+- raw PDFs / XLSX / XLS / ZIP / RAR files
+- main application runtime code
+- build artifacts
+
+## Export time
+
+`{exported_at}`
+
+## Source repo
+
+`{ROOT}`
+
+## Refresh
+
+Run from the source repo:
+
+```bash
+python3 scripts/export_memory_repo.py /path/to/memory-repo-checkout
+```
+\"\"\"
+    (target / "README.md").write_text(readme, encoding="utf-8")
+
+    for rel in COPY_FILES:
+        src = ROOT / rel
+        if src.exists():
+            copy_file(src, target / rel)
+
+    for src_rel, dest_rel in COPY_DIRS:
+        src = ROOT / src_rel
+        if src.exists():
+            copy_dir(src, target / dest_rel)
+
+    for src_rel, dest_rel in OPTIONAL_COPY_DIRS:
+        src = ROOT / src_rel
+        if src.exists():
+            copy_dir(src, target / dest_rel)
+            break
+
+    print(f"Exported memory repo snapshot to: {target}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+
+def write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Bootstrap a compile-first knowledge system into another repo.")
+    parser.add_argument("target_dir", help="Target repository root")
+    parser.add_argument("project_name", help="Human-readable project name")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing files")
+    parser.add_argument("--raw-root-name", help="Folder name to use for the default local raw root")
+    args = parser.parse_args()
+
+    target = Path(args.target_dir).expanduser().resolve()
+    project_name = args.project_name.strip()
+    slug = slugify(project_name)
+    raw_root_name = args.raw_root_name or f"{slug}_raw"
+    today = date.today().isoformat()
+
+    files: dict[Path, str] = {
+        target / "AGENTS.md": f"""# {project_name} Agent Rules
+
+这仓库默认走 `wiki-first`，不是 `chat-first`。
+
+## 1. 每个新 session 默认先干嘛
+
+只要任务不是纯闲聊，默认先读：
+
+1. `docs/wiki/index.md`
+2. `docs/wiki/current-status.md`
+3. `docs/wiki/log.md`
+
+别一上来就靠 session 硬猜。
+
+## 2. 默认范式
+
+- `compile-first`
+- `writeback` 必做
+- 中等规模先 `wiki`，不先上重 `RAG`
+- Obsidian 可替换，范式不可替换
+- `Idea / Intent` 优先于 `Code`
+
+## 3. 知识分层
+
+- raw：原始资料
+- wiki：编译后的当前共识
+- code：执行层
+
+只改代码不回写 wiki，算没做完。
+""",
+        target / "docs" / "wiki" / "README.md": f"""# {project_name} Wiki
+
+这套 wiki 解决三个问题：
+
+1. 新 session 老失忆
+2. 资料散在各处，没人知道先看哪
+3. 新结论只活在聊天里
+
+默认范式：
+
+- `compile-first`
+- `writeback` 必做
+- 中等规模先 `wiki`
+- Obsidian 可替换，范式不可替换
+- `Idea / Intent` 优先于 `Code`
+
+自检：
+
+```bash
+python3 scripts/wiki_check.py
+python3 scripts/raw_manifest_check.py
+```
+""",
+        target / "docs" / "wiki" / "SCHEMA.md": """# Wiki Schema
+
+## 页面
+
+- `index.md`
+- `log.md`
+- `project-overview.md`
+- `current-status.md`
+- `sources-and-data.md`
+- `github-and-raw-strategy.md`
+
+## 规则
+
+1. 新 raw 进来，先登记 manifest
+2. 新结论，必须回写 wiki
+3. 新规则，必须同时补测试
+4. 没证据，不要写成结论
+5. memory repo 只放编译结果，不放 raw 本体
+""",
+        target / "docs" / "wiki" / "index.md": """# Wiki Index
+
+- [README.md](./README.md)
+- [SCHEMA.md](./SCHEMA.md)
+- [project-overview.md](./project-overview.md)
+- [current-status.md](./current-status.md)
+- [sources-and-data.md](./sources-and-data.md)
+- [github-and-raw-strategy.md](./github-and-raw-strategy.md)
+- [log.md](./log.md)
+""",
+        target / "docs" / "wiki" / "log.md": f"""# Wiki Log
+
+## [{today}] bootstrap | 初始化知识系统
+
+- 建立 wiki、manifest、检查脚本和 repo 级默认规则。
+""",
+        target / "docs" / "wiki" / "project-overview.md": f"""# {project_name} Overview
+
+这里写项目的一句话定义、主线目标、交付边界。
+""",
+        target / "docs" / "wiki" / "current-status.md": f"""# {project_name} Current Status
+
+这里写当前已支持、未支持、线上状态、最近风险。
+""",
+        target / "docs" / "wiki" / "sources-and-data.md": f"""# {project_name} Sources and Data
+
+原始资料默认放在本地 raw 根目录，不直接进 Git。
+
+raw 根目录建议：
+
+```text
+../{raw_root_name}/
+```
+
+GitHub 里只保留 manifest 和编译结果。
+""",
+        target / "docs" / "wiki" / "github-and-raw-strategy.md": """# GitHub and Raw Strategy
+
+## 结论
+
+- GitHub private repo 放：`code + wiki + manifests + verified_cases`
+- 本地 raw 仓放：`pdf/xlsx/xls/rar/图片/客户原件`
+- memory repo 放：编译后的长期记忆，不放 raw 本体
+
+## 为什么
+
+把全量 raw 塞进 Git，只会让仓库越来越肥，diff 也基本没用。
+
+真正该版本化的是：
+
+- 结论
+- 规则
+- 答案表
+- 清晰的索引
+
+不是一堆二进制原件。
+""",
+        target / "manifests" / "README.md": """# Manifests
+
+这里放 raw 的索引，不放 raw 本体。
+""",
+        target / "manifests" / "raw_sources.csv": "source_id,company,vendor,kind,filename,raw_rel_path,status,compiled_into,notes\n",
+        target / "scripts" / "wiki_check.py": WIKI_CHECK,
+        target / "scripts" / "raw_manifest_check.py": RAW_MANIFEST_CHECK,
+        target / "scripts" / "init_raw_root.py": INIT_RAW_ROOT.format(raw_root_name=raw_root_name),
+        target / "scripts" / "export_memory_repo.py": EXPORT_MEMORY_REPO,
+        target / ".gitignore": ".obsidian/\\nraw/\\nraw_local/\\nraw_vault/\\n",
+    }
+
+    created: list[Path] = []
+    for path, content in files.items():
+        if path.exists() and not args.force:
+            continue
+        write(path, content)
+        created.append(path)
+
+    print(f"Bootstrapped knowledge system for: {project_name}")
+    print(f"Target repo: {target}")
+    print(f"Default raw root name: {raw_root_name}")
+    print("Files created/updated:")
+    for path in created:
+        print(f"- {path}")
+
+    print("\\nNext steps:")
+    print(f"1. cd {target}")
+    print("2. python3 scripts/init_raw_root.py")
+    print("3. python3 scripts/wiki_check.py")
+    print("4. python3 scripts/raw_manifest_check.py")
+    print("5. python3 scripts/export_memory_repo.py /path/to/memory-repo")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
