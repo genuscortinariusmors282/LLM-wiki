@@ -567,6 +567,23 @@ Rules:
 - Every conclusion goes back into the wiki (writeback is mandatory)
 - Raw files (PDF/XLSX) stay outside Git, only manifests/ indexes go in
 """,
+        target / ".windsurfrules": f"""This project ({project_name}) uses a wiki-first knowledge system.
+
+Before starting any non-trivial task:
+1. Read docs/wiki/index.md for the wiki page list
+2. Read docs/wiki/current-status.md for project state
+3. Read docs/wiki/log.md for recent session history
+
+After completing work:
+- Update docs/wiki/current-status.md with new state
+- Append a log entry to docs/wiki/log.md (date | topic | outcome)
+- If a durable decision was made, write it into the relevant wiki page
+
+Rules:
+- Compile raw documents into wiki pages, don't just reference them
+- Every conclusion goes back into the wiki (writeback is mandatory)
+- Raw files (PDF/XLSX) stay outside Git, only manifests/ indexes go in
+""",
         target / ".gitignore": ".obsidian/\\nraw/\\nraw_local/\\nraw_vault/\\n",
     }
 
