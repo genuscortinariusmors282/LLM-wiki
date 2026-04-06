@@ -17,6 +17,16 @@
 
 ## 你该怎么用
 
+### 0. 最省事的用法
+
+如果你的朋友用的是 Codex，直接对 AI 说这句就行：
+
+```text
+Use $skill-installer to install https://github.com/Ss1024sS/LLM-wiki/tree/main/skills/knowledge-system-bootstrap, then use it to scaffold my project knowledge system.
+```
+
+这不是理论，我已经真测过，能装。
+
 ### 1. 读 playbook
 
 先看：
@@ -37,6 +47,14 @@
 mkdir -p ~/.codex/skills
 cp -R skills/knowledge-system-bootstrap ~/.codex/skills/knowledge-system-bootstrap
 ```
+
+如果你已经 clone 了这个 repo，还可以一键跑：
+
+```bash
+bash scripts/install-codex-skill.sh
+```
+
+它会调用 Codex 自带的 `skill-installer` 脚本，从这个 GitHub repo 直接安装。
 
 ### 3. 用 skill 起一个新项目
 
