@@ -164,7 +164,7 @@ bash scripts/upgrade.sh /path/to/your-project
 - [UNIVERSAL.md](./UNIVERSAL.md) — Setup guide + migration path + FAQ + templates for every AI
 - [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md) — Full rationale (CN+EN), GitHub/raw split, provenance roadmap
 - [docs/ingest-pipeline.md](./docs/ingest-pipeline.md) — How local raw intake, dedupe, parsing, and stale detection work
-- [docs/release-notes-v1.2.0.md](./docs/release-notes-v1.2.0.md) — Latest release: automated raw intake, stale detection, and a lower-token workflow that actually deserves the name
+- [docs/release-notes-v1.2.2.md](./docs/release-notes-v1.2.2.md) — Latest release: structured table diffs, manual delta-compile drafts, stricter provenance, and a smoke test that stops punching itself in the throat
 - [examples/demo-project/](./examples/demo-project/) — What a bootstrapped project looks like after 3 sessions
 
 ---

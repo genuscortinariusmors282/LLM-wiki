@@ -4,7 +4,7 @@ jobs:
   smoke-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 1. Bootstrap a real project from scratch
       - name: "Bootstrap: create project via root wrapper"
@@ -117,14 +117,16 @@ jobs:
       # 6. Test --force overwrites existing
       - name: "Force: verify overwrite works"
         run: |
-          echo "original" > /tmp/smoke-project/AGENTS.md
-          python3 scripts/bootstrap_knowledge_system.py /tmp/smoke-project "Smoke Test Project" --force
-          grep -q "wiki-first" /tmp/smoke-project/AGENTS.md || { echo "FAIL: force did not overwrite"; exit 1; }
+          python3 scripts/bootstrap_knowledge_system.py /tmp/force-project "Force Test Project"
+          echo "original" > /tmp/force-project/AGENTS.md
+          python3 scripts/bootstrap_knowledge_system.py /tmp/force-project "Force Test Project" --force
+          grep -q "wiki-first" /tmp/force-project/AGENTS.md || { echo "FAIL: force did not overwrite"; exit 1; }
           echo "PASS: --force overwrote existing file"
 
       # 7. Test provenance hash script
-      - name: "Provenance: verify hash check works"
-        run: cd /tmp/smoke-project && python3 scripts/provenance_check.py
+      - name: "Provenance: stale hash gets caught"
+        run: |
+          cd /tmp/smoke-project && PROJECT_RAW_ROOT=/tmp/smoke-raw python3 scripts/provenance_check.py 2>&1 && exit 1 || echo "PASS: stale source hash caught"
 
       - name: "Provenance: unresolved source fails loudly"
         run: |
@@ -146,7 +148,7 @@ jobs:
           index = project / "docs" / "wiki" / "index.md"
           index.write_text(index.read_text(encoding="utf-8") + "- [unresolved.md](./unresolved.md)\n", encoding="utf-8")
           PY
-          cd /tmp/smoke-project && python3 scripts/provenance_check.py 2>&1 && exit 1 || echo "PASS: unresolved source caught"
+          cd /tmp/smoke-project && PROJECT_RAW_ROOT=/tmp/smoke-raw python3 scripts/provenance_check.py 2>&1 && exit 1 || echo "PASS: unresolved source caught"
 
       # 8. Verify all platform configs generated
       - name: "Platform configs: all 4 present"

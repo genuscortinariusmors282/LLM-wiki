@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.2 (2026-04-07)
 
 ### Added
 - `scripts/delta_compile.py` can now generate manual draft stubs for stale pages and newly ingested raw instead of pretending auto-overwrite is a good idea.
@@ -10,6 +10,8 @@
 - `ingest_raw.py` now stores compact structured diffs for changed `csv/xlsx/xlsm` sources, including sheet-level hints for workbook changes and tracked row deltas when a stable key column exists.
 - `provenance_check.py` no longer treats unresolved sources as fresh. If the source cannot be resolved, it fails loudly.
 - Wiki provenance schema now documents `compiled_at` and optional `compiled_from` alongside `source_hash`.
+- CI smoke now isolates the `--force` test so it does not corrupt the provenance fixture.
+- `.github/workflows/wiki-lint.yml` now uses `actions/checkout@v5`, which is the sane fix for the Node 20 deprecation warning.
 
 ### Why it matters
 - Better stale triage without spending tokens rereading raw
