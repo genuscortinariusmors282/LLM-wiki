@@ -982,6 +982,42 @@ else
   exit 1
 fi
 """,
+        target / ".claude" / "commands" / "wiki-check.md": """Run all LLM-wiki validation checks on this project.
+
+Execute these commands in order and report results:
+
+```bash
+python3 scripts/wiki_check.py
+python3 scripts/raw_manifest_check.py
+python3 scripts/untracked_raw_check.py
+python3 scripts/provenance_check.py
+```
+
+If any check fails, explain what's wrong and how to fix it.
+If all pass, say "Wiki health: OK" with the summary counts.
+""",
+        target / ".claude" / "commands" / "wiki-upgrade.md": """Check for LLM-wiki updates and upgrade if available.
+
+```bash
+python3 scripts/version_check.py
+```
+
+If an update is available, ask the user if they want to upgrade, then run:
+
+```bash
+bash scripts/upgrade.sh
+```
+
+After upgrade, run `/wiki-check` to verify everything still passes.
+""",
+        target / ".claude" / "commands" / "wiki-status.md": """Show the current wiki status: what pages exist, last log entry, and any issues.
+
+1. Read `docs/wiki/index.md` and list all pages
+2. Read the last 3 entries from `docs/wiki/log.md`
+3. Read `docs/wiki/current-status.md` and summarize
+4. Run `python3 scripts/version_check.py` to check for updates
+5. Report a one-paragraph summary of project state
+""",
         target / ".cursorrules": f"""This project ({project_name}) uses a wiki-first knowledge system.
 
 Before starting any non-trivial task:

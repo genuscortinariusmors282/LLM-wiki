@@ -14,7 +14,8 @@ Auto-update + community hardening.
 
 ### Changed
 - Session protocol Step 0: version check before reading wiki (all 5 platform templates)
-- Bootstrap now generates 24 files (was 22, +upgrade.sh +version_check.py)
+- Bootstrap now generates 27 files (was 22: +upgrade.sh, +version_check.py, +3 Claude Code commands)
+- Codex SKILL.md updated with full 27-file output, provenance, upgrade path
 
 ---
 
