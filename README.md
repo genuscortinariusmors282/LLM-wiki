@@ -85,15 +85,18 @@ Works with Claude Code, Codex, Cursor, Windsurf.
 
 ```bash
 git clone https://github.com/Ss1024sS/LLM-wiki.git
+cd LLM-wiki
 
-# Preview first (dry run)
-python3 LLM-wiki/skills/knowledge-system-bootstrap/scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project" --dry-run
+# Preview what will be created (writes nothing)
+python3 scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project" --dry-run
 
-# Then run for real
-python3 LLM-wiki/skills/knowledge-system-bootstrap/scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
+# Run for real
+python3 scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
 ```
 
-Generates 20 files: wiki structure, manifests, validation scripts, CI workflow, and configs for 4 AI platforms.
+**Always use `scripts/bootstrap_knowledge_system.py`** (the root wrapper). Never call the one inside `skills/` directly — that's the Codex skill's internal copy.
+
+Generates 21 files: wiki structure, frontmatter templates, manifests, validation scripts, CI workflow, and configs for 4 AI platforms.
 
 ### Option C: Install as Codex skill
 

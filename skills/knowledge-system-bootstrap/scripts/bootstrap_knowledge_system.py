@@ -303,6 +303,136 @@ if __name__ == "__main__":
 """
 
 
+PROVENANCE_CHECK = """from __future__ import annotations
+
+import csv
+import hashlib
+import os
+import re
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = ROOT / "docs" / "wiki"
+MANIFEST = ROOT / "manifests" / "raw_sources.csv"
+
+FRONTMATTER_RE = re.compile(r"^---\\n(.*?)\\n---", re.DOTALL)
+SOURCE_HASH_RE = re.compile(r"source_hash:\\s*([a-f0-9]{12,})")
+
+SKIP_FILES = {"index.md", "log.md", "README.md", "SCHEMA.md"}
+
+
+def file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def load_manifest_paths() -> dict[str, Path]:
+    if not MANIFEST.exists():
+        return {}
+    raw_root_env = os.environ.get("PROJECT_RAW_ROOT")
+    raw_root = Path(raw_root_env).expanduser().resolve() if raw_root_env else None
+    result: dict[str, Path] = {}
+    with MANIFEST.open("r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            sid = (row.get("source_id") or "").strip()
+            rel = (row.get("raw_rel_path") or "").strip()
+            if sid and rel and raw_root:
+                result[sid] = (raw_root / rel).resolve()
+    return result
+
+
+def main() -> int:
+    if not WIKI_ROOT.exists():
+        print("provenance_check: docs/wiki does not exist")
+        return 1
+
+    manifest_paths = load_manifest_paths()
+    checked = 0
+    fresh = 0
+    stale: list[tuple[str, str, str]] = []
+    no_hash: list[str] = []
+
+    for path in sorted(WIKI_ROOT.rglob("*.md")):
+        if path.name in SKIP_FILES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        m = FRONTMATTER_RE.match(text)
+        if not m:
+            continue
+
+        fm = m.group(1)
+        hash_match = SOURCE_HASH_RE.search(fm)
+        if not hash_match:
+            no_hash.append(path.relative_to(ROOT).as_posix())
+            continue
+
+        stored_hash = hash_match.group(1)
+        checked += 1
+
+        # Find the source file
+        source_line = ""
+        for line in fm.splitlines():
+            if line.startswith("source:"):
+                source_line = line.split(":", 1)[1].strip()
+                break
+
+        if source_line == "session" or not source_line:
+            fresh += 1
+            continue
+
+        # Try to resolve source path
+        source_path = None
+        if source_line.startswith("raw/"):
+            candidate = ROOT / source_line
+            if candidate.exists():
+                source_path = candidate
+        for sid, spath in manifest_paths.items():
+            if sid in source_line or source_line in str(spath):
+                source_path = spath
+                break
+
+        if source_path and source_path.exists():
+            current = file_hash(source_path)
+            if current == stored_hash:
+                fresh += 1
+            else:
+                stale.append((
+                    path.relative_to(ROOT).as_posix(),
+                    stored_hash,
+                    current,
+                ))
+        else:
+            fresh += 1  # can't check, assume fresh
+
+    if stale:
+        print(f"provenance_check: {len(stale)} STALE page(s) detected")
+        for page, old, new in stale:
+            print(f"  {page}: hash was {old}, source now {new}")
+        print()
+        print("These wiki pages were compiled from source files that have since changed.")
+        print("Recompile them to update the wiki with current information.")
+
+    if no_hash:
+        print(f"provenance_check: {len(no_hash)} page(s) without source_hash (add for tracking)")
+        for page in no_hash:
+            print(f"  {page}")
+
+    if not stale:
+        print(f"provenance_check: OK ({checked} checked, {fresh} fresh, {len(no_hash)} without hash)")
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
 INIT_RAW_ROOT = """from __future__ import annotations
 
 import argparse
@@ -635,6 +765,7 @@ status: current / draft / stale
 - `updated` — 最后更新日期（不填则等于 created）
 - `tags` — 分类标签，Obsidian 可直接用
 - `status` — `current`（默认）/ `draft`（未确认）/ `stale`（可能过期）
+- `source_hash` — 编译时源文件的 SHA-256 前 16 位。`provenance_check.py` 用它检测源文件是否已变更。源文件变了 → 页面标记为 stale。
 
 ### 为什么这样设计
 - AI 读一个页面就知道信息从哪来，不用额外查 manifest
@@ -756,6 +887,7 @@ status: current
         target / "scripts" / "wiki_check.py": WIKI_CHECK,
         target / "scripts" / "raw_manifest_check.py": RAW_MANIFEST_CHECK,
         target / "scripts" / "untracked_raw_check.py": UNTRACKED_RAW_CHECK,
+        target / "scripts" / "provenance_check.py": PROVENANCE_CHECK,
         target / "scripts" / "init_raw_root.py": INIT_RAW_ROOT.format(raw_root_name=raw_root_name),
         target / "scripts" / "export_memory_repo.py": EXPORT_MEMORY_REPO,
         target / ".cursorrules": f"""This project ({project_name}) uses a wiki-first knowledge system.

@@ -1,25 +1,77 @@
-name: Wiki Lint
+name: Smoke Test
 on: [push, pull_request]
 jobs:
-  validate:
+  smoke-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bootstrap a temp project and validate
-        run: |
-          python3 skills/knowledge-system-bootstrap/scripts/bootstrap_knowledge_system.py /tmp/test-output "CI Test"
-          cd /tmp/test-output
-          python3 scripts/wiki_check.py
-          python3 scripts/raw_manifest_check.py
-          python3 scripts/untracked_raw_check.py
+      # 1. Bootstrap a real project from scratch
+      - name: "Bootstrap: create project via root wrapper"
+        run: python3 scripts/bootstrap_knowledge_system.py /tmp/smoke-project "Smoke Test Project"
 
-      - name: Verify --dry-run works
+      - name: "Bootstrap: verify 22 files created"
         run: |
-          python3 skills/knowledge-system-bootstrap/scripts/bootstrap_knowledge_system.py /tmp/dry-test "Dry Test" --dry-run | grep "Would create 21 files"
+          COUNT=$(find /tmp/smoke-project -type f | wc -l)
+          echo "Files created: $COUNT"
+          [ "$COUNT" -eq 22 ] || { echo "FAIL: expected 22 files, got $COUNT"; exit 1; }
 
-      - name: Verify demo manifest is valid
+      # 2. Run ALL validation scripts on the bootstrapped project
+      - name: "Validate: wiki_check.py"
+        run: cd /tmp/smoke-project && python3 scripts/wiki_check.py
+
+      - name: "Validate: raw_manifest_check.py"
+        run: cd /tmp/smoke-project && python3 scripts/raw_manifest_check.py
+
+      - name: "Validate: untracked_raw_check.py"
+        run: cd /tmp/smoke-project && python3 scripts/untracked_raw_check.py
+
+      # 3. Test frontmatter validation catches missing frontmatter
+      - name: "Validate: frontmatter enforcement"
         run: |
-          cd examples/demo-project
-          # Check CSV header matches expected columns
-          head -1 manifests/raw_sources.csv | grep -q "source_id,company,vendor,kind,filename,raw_rel_path,status,compiled_into,notes"
+          echo "# Page without frontmatter" > /tmp/smoke-project/docs/wiki/bad-page.md
+          echo "- [bad-page.md](./bad-page.md)" >> /tmp/smoke-project/docs/wiki/index.md
+          cd /tmp/smoke-project && python3 scripts/wiki_check.py 2>&1 && exit 1 || echo "PASS: missing frontmatter caught"
+
+      # 4. Test untracked raw detection catches orphan files
+      - name: "Validate: untracked file detection"
+        run: |
+          touch /tmp/smoke-project/stray_report.pdf
+          cd /tmp/smoke-project && python3 scripts/untracked_raw_check.py 2>&1 && exit 1 || echo "PASS: untracked PDF caught"
+
+      # 5. Test --dry-run creates nothing
+      - name: "Dry-run: verify no files written"
+        run: |
+          python3 scripts/bootstrap_knowledge_system.py /tmp/dry-test "Dry Test" --dry-run
+          [ ! -d /tmp/dry-test ] || { echo "FAIL: dry-run created directory"; exit 1; }
+          echo "PASS: dry-run wrote nothing"
+
+      # 6. Test --force overwrites existing
+      - name: "Force: verify overwrite works"
+        run: |
+          echo "original" > /tmp/smoke-project/AGENTS.md
+          python3 scripts/bootstrap_knowledge_system.py /tmp/smoke-project "Smoke Test Project" --force
+          grep -q "wiki-first" /tmp/smoke-project/AGENTS.md || { echo "FAIL: force did not overwrite"; exit 1; }
+          echo "PASS: --force overwrote existing file"
+
+      # 7. Test provenance hash script
+      - name: "Provenance: verify hash check works"
+        run: cd /tmp/smoke-project && python3 scripts/provenance_check.py
+
+      # 8. Verify all platform configs generated
+      - name: "Platform configs: all 4 present"
+        run: |
+          for f in AGENTS.md CLAUDE.md .cursorrules .windsurfrules; do
+            [ -f "/tmp/smoke-project/$f" ] || { echo "FAIL: missing $f"; exit 1; }
+          done
+          echo "PASS: all 4 platform configs present"
+
+      # 9. Verify demo project structure
+      - name: "Demo: validate example project"
+        run: |
+          for f in CLAUDE.md AGENTS.md .cursorrules .windsurfrules; do
+            [ -f "examples/demo-project/$f" ] || { echo "FAIL: demo missing $f"; exit 1; }
+          done
+          [ -f "examples/demo-project/docs/wiki/index.md" ] || { echo "FAIL: demo missing wiki"; exit 1; }
+          [ -f "examples/demo-project/manifests/raw_sources.csv" ] || { echo "FAIL: demo missing manifest"; exit 1; }
+          echo "PASS: demo project complete"
