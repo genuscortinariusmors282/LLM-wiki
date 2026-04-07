@@ -14,8 +14,10 @@ into this:
 
 - a current `manifests/raw_sources.csv`
 - a structural lock file with hashes and cheap metadata
+- structured diff hints for table-shaped raw
 - a report that shows what is new, changed, archived, or duplicated
 - a stale report that tells you what wiki pages are now suspect
+- optional draft stubs for manual recompilation
 
 Without burning LLM tokens on clerical work.
 
@@ -32,6 +34,7 @@ What it does:
 5. updates `manifests/raw_sources.csv`
 6. writes `manifests/raw_index.json`
 7. writes `manifests/intake_report.md`
+8. records compact change summaries for changed CSV/XLSX/XLSM sources
 
 It is local, deterministic, and cheap.
 
@@ -55,6 +58,18 @@ What it does:
 
 This is the default freshness layer.
 
+### 3. `python3 scripts/delta_compile.py --write-drafts`
+
+What it does:
+
+1. reads stale pages and uncompiled raw rows
+2. chooses a target page or keeps the existing stale page as target
+3. writes a manual draft stub under `docs/wiki/drafts/`
+4. pre-fills `source`, `source_hash`, `compiled_at`, and optional `compiled_from`
+5. emits `manifests/delta_compile_report.md`
+
+It does **not** overwrite live wiki pages.
+
 ## Why this matters
 
 Before this, most projects did one of two dumb things:
@@ -76,7 +91,9 @@ LLM tokens can go to synthesis, not janitorial work.
 Current local parsing is intentionally cheap:
 
 - `csv/tsv` → row count + headers
-- `xlsx/xlsm` → workbook sheet names
+- `csv/tsv` changed files → row count, headers, key/value column hints, tracked row-change summary
+- `xlsx/xlsm` → workbook sheet names, dimensions, header hints, and per-sheet structural change summary
+- `xls` → legacy workbook marker (no fake precision)
 - `docx` → paragraph blocks
 - `pptx` → slide count
 - `pdf` → rough page count
@@ -96,6 +113,7 @@ When a batch of files lands:
 python3 scripts/ingest_raw.py
 python3 scripts/raw_manifest_check.py
 python3 scripts/stale_report.py
+python3 scripts/delta_compile.py --write-drafts
 ```
 
 Then:

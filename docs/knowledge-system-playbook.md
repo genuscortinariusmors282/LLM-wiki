@@ -176,6 +176,20 @@ python3 scripts/stale_report.py
 
 这才算“默认智能”，不是把 stale 检查藏成专家模式。
 
+接下来该补的不是“自动偷偷改 wiki”，而是：
+
+```bash
+python3 scripts/delta_compile.py --write-drafts
+```
+
+它应该做的事很克制：
+
+- 给 stale 页面生成手动重编译草稿
+- 给 `status=new` 的 raw 生成建议落点
+- 把 `source_hash / compiled_at / compiled_from` 预填好
+
+该它做的只是起草，不是越俎代庖。
+
 ## 每个新 session 的默认行为
 
 只要不是纯闲聊，默认先读：

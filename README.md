@@ -65,7 +65,7 @@ LLM-wiki/
 │       └── manifests/raw_sources.csv
 ├── skills/
 │   └── knowledge-system-bootstrap/  # Codex skill for automated scaffolding
-│       └── scripts/bootstrap_knowledge_system.py  # Generates 29 files in one command
+│       └── scripts/bootstrap_knowledge_system.py  # Generates 30 files in one command
 └── scripts/
     └── install-codex-skill.sh
 ```
@@ -97,7 +97,7 @@ python3 scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
 
 **Always use `scripts/bootstrap_knowledge_system.py`** (the root wrapper). Never call the one inside `skills/` directly — that's the Codex skill's internal copy.
 
-Generates 29 files: wiki structure, frontmatter templates, manifests, raw intake + stale reporting scripts, validation scripts, Claude Code commands, CI workflow, and configs for 4 AI platforms.
+Generates 30 files: wiki structure, frontmatter templates, manifests, raw intake + stale reporting scripts, manual delta-compile scaffolds, validation scripts, Claude Code commands, CI workflow, and configs for 4 AI platforms.
 
 ### Option C: Install as Codex skill
 
@@ -123,6 +123,7 @@ After 3 sessions, check:
 - [ ] Decisions from session 1 are still accessible in session 3
 - [ ] `python3 scripts/ingest_raw.py` can register new raw files without manual manifest grunt work
 - [ ] `python3 scripts/stale_report.py` can tell you what needs recompilation
+- [ ] `python3 scripts/delta_compile.py --write-drafts` can generate draft stubs instead of silently overwriting wiki pages
 
 See `examples/demo-project/` for what a healthy wiki looks like after a few sessions.
 

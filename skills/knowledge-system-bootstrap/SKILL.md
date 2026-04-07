@@ -9,17 +9,18 @@ Use this when the user wants a project to stop relying on chat memory and start 
 
 ## What this skill does
 
-Scaffolds a complete wiki-first knowledge system (29 files):
+Scaffolds a complete wiki-first knowledge system (30 files):
 
-- `docs/wiki/` — 8 wiki pages with YAML frontmatter (title, source, created, tags, status)
+- `docs/wiki/` — 8 wiki pages with YAML frontmatter (title, source, created, tags, status, optional provenance fields)
 - `manifests/raw_sources.csv` — raw file index (never raw files themselves)
-- `scripts/` — 10 validation and utility scripts:
+- `scripts/` — 11 validation and utility scripts:
   - `wiki_check.py` — structure + broken links + frontmatter enforcement
-  - `ingest_raw.py` — scan a local raw root, dedupe, update manifest, and build a low-cost intake report
+  - `ingest_raw.py` — scan a local raw root, dedupe, update manifest, and build a low-cost intake report with table-level diff summaries
   - `raw_manifest_check.py` — manifest integrity
   - `untracked_raw_check.py` — finds orphan PDFs/Excel/images not in manifest
-  - `provenance_check.py` — content hash freshness (source_hash in frontmatter)
+  - `provenance_check.py` — content hash freshness (source_hash in frontmatter) with strict unresolved-source failures
   - `stale_report.py` — report wiki pages that are stale, missing hashes, unresolved, or blocked by manifest status
+  - `delta_compile.py` — generate manual draft stubs for stale/new raw instead of auto-overwriting wiki content
   - `version_check.py` — auto-checks GitHub for new LLM-wiki releases
   - `upgrade.sh` — one-command upgrade (scripts only, never touches wiki content)
   - `init_raw_root.py` — create local raw directory structure
@@ -55,6 +56,7 @@ Do not use it for tiny throwaway demos.
 4. Initialize local raw root: `python3 scripts/init_raw_root.py`
 5. Intake raw if needed: `python3 scripts/ingest_raw.py`
 6. Validate: `python3 scripts/wiki_check.py && python3 scripts/raw_manifest_check.py && python3 scripts/stale_report.py`
+7. If stale/new raw exists, scaffold manual recompilation drafts: `python3 scripts/delta_compile.py --write-drafts`
 
 ## Existing repo migration
 

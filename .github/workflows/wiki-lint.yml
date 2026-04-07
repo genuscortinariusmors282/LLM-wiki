@@ -10,11 +10,11 @@ jobs:
       - name: "Bootstrap: create project via root wrapper"
         run: python3 scripts/bootstrap_knowledge_system.py /tmp/smoke-project "Smoke Test Project"
 
-      - name: "Bootstrap: verify 29 files created"
+      - name: "Bootstrap: verify 30 files created"
         run: |
           COUNT=$(find /tmp/smoke-project -type f | wc -l)
           echo "Files created: $COUNT"
-          [ "$COUNT" -eq 29 ] || { echo "FAIL: expected 29 files, got $COUNT"; exit 1; }
+          [ "$COUNT" -eq 30 ] || { echo "FAIL: expected 30 files, got $COUNT"; exit 1; }
 
       # 2. Run ALL validation scripts on the bootstrapped project
       - name: "Validate: wiki_check.py"
@@ -66,6 +66,8 @@ jobs:
               f"title: Intake Check\n"
               f"source: {meta['source_id']}\n"
               f"source_hash: {meta['content_hash']}\n"
+              f"compiled_at: 2026-04-07T00:00:00+00:00\n"
+              f"compiled_from: [{meta['source_id']}]\n"
               f"created: 2026-04-07\n"
               f"status: current\n"
               f"---\n\n"
@@ -82,6 +84,15 @@ jobs:
         run: |
           printf 'B,11\n' >> /tmp/smoke-raw/inbox/spec_matrix.csv
           cd /tmp/smoke-project && PROJECT_RAW_ROOT=/tmp/smoke-raw python3 scripts/stale_report.py 2>&1 && exit 1 || echo "PASS: stale source caught"
+
+      - name: "Delta compile: writes manual draft stubs"
+        run: |
+          cd /tmp/smoke-project && PROJECT_RAW_ROOT=/tmp/smoke-raw python3 scripts/delta_compile.py --write-drafts
+          [ -f /tmp/smoke-project/manifests/delta_compile_report.md ] || { echo "FAIL: missing delta compile report"; exit 1; }
+          DRAFT=$(find /tmp/smoke-project/docs/wiki/drafts -type f -name '*.md' | head -n 1)
+          [ -n "$DRAFT" ] || { echo "FAIL: missing delta draft"; exit 1; }
+          grep -q "compiled_at:" "$DRAFT" || { echo "FAIL: draft missing compiled_at"; exit 1; }
+          grep -q "compiled_from:" "$DRAFT" || { echo "FAIL: draft missing compiled_from"; exit 1; }
 
       # 3. Test frontmatter validation catches missing frontmatter
       - name: "Validate: frontmatter enforcement"
@@ -114,6 +125,28 @@ jobs:
       # 7. Test provenance hash script
       - name: "Provenance: verify hash check works"
         run: cd /tmp/smoke-project && python3 scripts/provenance_check.py
+
+      - name: "Provenance: unresolved source fails loudly"
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          project = Path("/tmp/smoke-project")
+          page = project / "docs" / "wiki" / "unresolved.md"
+          page.write_text(
+              "---\n"
+              "title: Unresolved\n"
+              "source: src_missing\n"
+              "source_hash: deadbeefdeadbeef\n"
+              "created: 2026-04-07\n"
+              "status: draft\n"
+              "---\n\n"
+              "# Unresolved\n",
+              encoding="utf-8",
+          )
+          index = project / "docs" / "wiki" / "index.md"
+          index.write_text(index.read_text(encoding="utf-8") + "- [unresolved.md](./unresolved.md)\n", encoding="utf-8")
+          PY
+          cd /tmp/smoke-project && python3 scripts/provenance_check.py 2>&1 && exit 1 || echo "PASS: unresolved source caught"
 
       # 8. Verify all platform configs generated
       - name: "Platform configs: all 4 present"

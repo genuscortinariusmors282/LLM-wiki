@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `scripts/delta_compile.py` can now generate manual draft stubs for stale pages and newly ingested raw instead of pretending auto-overwrite is a good idea.
+
+### Changed
+- Bootstrap output is now **30 files** instead of 29.
+- `ingest_raw.py` now stores compact structured diffs for changed `csv/xlsx/xlsm` sources, including sheet-level hints for workbook changes and tracked row deltas when a stable key column exists.
+- `provenance_check.py` no longer treats unresolved sources as fresh. If the source cannot be resolved, it fails loudly.
+- Wiki provenance schema now documents `compiled_at` and optional `compiled_from` alongside `source_hash`.
+
+### Why it matters
+- Better stale triage without spending tokens rereading raw
+- Safer provenance checks
+- Recompile drafts without silent wiki mutation
+
 ## v1.2.0 (2026-04-07)
 
 Raw intake and stale detection are now first-class instead of hand-wavy future tense.

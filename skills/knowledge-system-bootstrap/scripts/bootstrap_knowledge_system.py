@@ -5,7 +5,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.2.2"
 
 
 def slugify(value: str) -> str:
@@ -15,7 +15,7 @@ def slugify(value: str) -> str:
 
 
 WIKI_CHECK = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import re
 import sys
@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
 
 RAW_MANIFEST_CHECK = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import csv
 import os
@@ -226,13 +226,14 @@ if __name__ == "__main__":
 
 
 INGEST_RAW = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import argparse
 import csv
 import hashlib
 import json
 import os
+import re
 import tarfile
 import zipfile
 from collections import Counter, defaultdict
@@ -268,6 +269,12 @@ SKIP_DIRS = {
     ".git", ".svn", "__pycache__", ".DS_Store",
     "node_modules", ".venv", "venv",
 }
+KEY_COLUMN_HINTS = ("sku", "part", "item", "model", "spec", "code", "pn", "material", "id", "series")
+VALUE_COLUMN_HINTS = ("price", "cost", "amount", "qty", "quantity", "lead", "currency", "discount", "rate")
+MAX_HEADERS = 8
+MAX_ROW_WIDTH = 12
+MAX_TRACKED_ROWS = 2000
+MAX_SHEETS = 6
 
 
 def utc_now() -> str:
@@ -310,36 +317,289 @@ def detect_kind(path: Path) -> str:
     return "raw"
 
 
-def summarize_csv(path: Path) -> dict[str, object]:
-    delimiter = "," if path.suffix.lower() == ".csv" else "\\t"
+def clean_cells(values: list[str], *, limit: int = MAX_ROW_WIDTH) -> list[str]:
+    cleaned = [
+        str(value or "").replace("\\n", " ").replace("\\r", " ").strip()[:80]
+        for value in values[:limit]
+    ]
+    while cleaned and not cleaned[-1]:
+        cleaned.pop()
+    return cleaned
+
+
+def guess_key_column(headers: list[str]) -> str:
+    lowered = [(header, header.lower()) for header in headers if header]
+    for hint in KEY_COLUMN_HINTS:
+        for original, value in lowered:
+            if hint in value:
+                return original
+    return headers[0] if headers else ""
+
+
+def suspicious_columns(headers: list[str]) -> list[str]:
+    flagged: list[str] = []
+    for header in headers:
+        lowered = header.lower()
+        if any(hint in lowered for hint in KEY_COLUMN_HINTS + VALUE_COLUMN_HINTS):
+            flagged.append(header)
+    return flagged[:6]
+
+
+def row_signature(cells: list[str]) -> str:
+    payload = "|".join(clean_cells(cells, limit=MAX_ROW_WIDTH))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def compare_named_lists(before: list[str], after: list[str]) -> tuple[list[str], list[str]]:
+    old = set(before)
+    new = set(after)
+    return sorted(new - old), sorted(old - new)
+
+
+def compare_row_signatures(before: dict[str, str], after: dict[str, str]) -> str:
+    if not before or not after:
+        return ""
+    old_keys = set(before)
+    new_keys = set(after)
+    added = len(new_keys - old_keys)
+    removed = len(old_keys - new_keys)
+    changed = len([key for key in old_keys & new_keys if before[key] != after[key]])
+    parts: list[str] = []
+    if added:
+        parts.append(f"{added} added")
+    if removed:
+        parts.append(f"{removed} removed")
+    if changed:
+        parts.append(f"{changed} changed")
+    return ", ".join(parts)
+
+
+def summarize_delimited(path: Path, delimiter: str, parser: str) -> dict[str, object]:
     headers: list[str] = []
+    key_column = ""
+    key_index = -1
     row_count = 0
+    column_count = 0
+    tracked_rows: dict[str, str] = {}
+    sample_rows: list[str] = []
+    truncated = False
     with path.open("r", encoding="utf-8-sig", errors="ignore", newline="") as handle:
         reader = csv.reader(handle, delimiter=delimiter)
-        for row in reader:
+        for raw_row in reader:
+            cleaned = clean_cells(raw_row)
+            if not cleaned:
+                continue
+            column_count = max(column_count, len(cleaned))
+            if not headers:
+                headers = [cell[:60] for cell in cleaned[:MAX_HEADERS]]
+                key_column = guess_key_column(headers)
+                key_index = headers.index(key_column) if key_column in headers else -1
+                continue
             row_count += 1
-            if not headers and any(cell.strip() for cell in row):
-                headers = [cell.strip()[:60] for cell in row[:8]]
+            if len(sample_rows) < 3:
+                sample_rows.append(" | ".join(cleaned[:MAX_HEADERS]))
+            if row_count > MAX_TRACKED_ROWS:
+                truncated = True
+                continue
+            if key_index >= 0 and key_index < len(cleaned):
+                key = cleaned[key_index]
+                if key:
+                    tracked_rows[key] = row_signature(cleaned)
     return {
-        "parser": "csv-local",
-        "summary": f"{row_count} row(s); headers: {', '.join(headers) if headers else 'none'}",
-        "metadata": {"row_count": row_count, "headers": headers, "delimiter": delimiter},
+        "parser": parser,
+        "summary": (
+            f"{row_count} data row(s); {column_count} column(s); "
+            f"headers: {', '.join(headers) if headers else 'none'}"
+        ),
+        "metadata": {
+            "row_count": row_count,
+            "column_count": column_count,
+            "headers": headers,
+            "delimiter": delimiter,
+            "key_column": key_column,
+            "suspicious_columns": suspicious_columns(headers),
+            "sample_rows": sample_rows,
+            "tracked_rows": tracked_rows,
+            "truncated": truncated,
+        },
+    }
+
+
+def summarize_csv(path: Path) -> dict[str, object]:
+    delimiter = "," if path.suffix.lower() == ".csv" else "\\t"
+    return summarize_delimited(path, delimiter, "csv-local")
+
+
+def normalize_zip_path(base: str, target: str) -> str:
+    parts = [part for part in (Path(base).parent / target).as_posix().split("/") if part not in {"", "."}]
+    normalized: list[str] = []
+    for part in parts:
+        if part == "..":
+            if normalized:
+                normalized.pop()
+            continue
+        normalized.append(part)
+    return "/".join(normalized)
+
+
+def spreadsheet_column_index(label: str) -> int:
+    total = 0
+    for char in label.upper():
+        if not char.isalpha():
+            break
+        total = total * 26 + (ord(char) - 64)
+    return total
+
+
+def parse_sheet_dimension(ref: str) -> tuple[int, int]:
+    if not ref:
+        return 0, 0
+    tail = ref.split(":")[-1]
+    letters = "".join(char for char in tail if char.isalpha())
+    digits = "".join(char for char in tail if char.isdigit())
+    return int(digits or 0), spreadsheet_column_index(letters)
+
+
+def read_shared_strings(zf: zipfile.ZipFile) -> list[str]:
+    try:
+        with zf.open("xl/sharedStrings.xml") as handle:
+            root = ET.fromstring(handle.read())
+        return ["".join(node.itertext()).strip() for node in root.findall(".//{*}si")]
+    except Exception:
+        return []
+
+
+def read_workbook_sheets(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
+    with zf.open("xl/workbook.xml") as handle:
+        workbook_root = ET.fromstring(handle.read())
+    rel_map: dict[str, str] = {}
+    try:
+        with zf.open("xl/_rels/workbook.xml.rels") as handle:
+            rel_root = ET.fromstring(handle.read())
+        for node in rel_root.findall(".//{*}Relationship"):
+            rel_id = node.attrib.get("Id", "")
+            target = node.attrib.get("Target", "")
+            if rel_id and target:
+                rel_map[rel_id] = normalize_zip_path("xl/workbook.xml", target)
+    except Exception:
+        rel_map = {}
+    sheets: list[tuple[str, str]] = []
+    for node in workbook_root.findall(".//{*}sheet"):
+        name = node.attrib.get("name", "")
+        rel_id = ""
+        for key, value in node.attrib.items():
+            if key.endswith("}id") or key == "id":
+                rel_id = value
+                break
+        target = rel_map.get(rel_id, "")
+        if name and target:
+            sheets.append((name, target))
+    return sheets
+
+
+def resolve_xlsx_cell(cell: ET.Element, shared_strings: list[str]) -> str:
+    cell_type = cell.attrib.get("t", "")
+    if cell_type == "inlineStr":
+        return "".join(cell.itertext()).strip()
+    value = cell.findtext("{*}v", default="").strip()
+    if cell_type == "s":
+        try:
+            return shared_strings[int(value)]
+        except Exception:
+            return value
+    if cell_type == "b":
+        return "TRUE" if value == "1" else "FALSE"
+    if value:
+        return value
+    return "".join(cell.itertext()).strip()
+
+
+def summarize_xlsx_sheet(zf: zipfile.ZipFile, sheet_name: str, sheet_path: str, shared_strings: list[str]) -> dict[str, object]:
+    with zf.open(sheet_path) as handle:
+        root = ET.fromstring(handle.read())
+    dimension_node = root.find("{*}dimension")
+    dim_rows, dim_cols = parse_sheet_dimension(dimension_node.attrib.get("ref", "") if dimension_node is not None else "")
+    headers: list[str] = []
+    key_column = ""
+    key_index = -1
+    row_count = 0
+    column_count = 0
+    tracked_rows: dict[str, str] = {}
+    sample_rows: list[str] = []
+    truncated = False
+    for row_node in root.findall(".//{*}sheetData/{*}row"):
+        cells_by_index: dict[int, str] = {}
+        for cell in row_node.findall("{*}c"):
+            ref = cell.attrib.get("r", "")
+            letters = "".join(char for char in ref if char.isalpha())
+            index = spreadsheet_column_index(letters) or (len(cells_by_index) + 1)
+            cells_by_index[index] = resolve_xlsx_cell(cell, shared_strings)
+        if not cells_by_index:
+            continue
+        max_index = min(max(cells_by_index), MAX_ROW_WIDTH)
+        cleaned = clean_cells([cells_by_index.get(idx, "") for idx in range(1, max_index + 1)])
+        if not cleaned:
+            continue
+        column_count = max(column_count, len(cleaned))
+        if not headers:
+            headers = [cell[:60] for cell in cleaned[:MAX_HEADERS]]
+            key_column = guess_key_column(headers)
+            key_index = headers.index(key_column) if key_column in headers else -1
+            continue
+        row_count += 1
+        if len(sample_rows) < 3:
+            sample_rows.append(" | ".join(cleaned[:MAX_HEADERS]))
+        if row_count > MAX_TRACKED_ROWS:
+            truncated = True
+            continue
+        if key_index >= 0 and key_index < len(cleaned):
+            key = cleaned[key_index]
+            if key:
+                tracked_rows[key] = row_signature(cleaned)
+    return {
+        "name": sheet_name,
+        "row_count": row_count or dim_rows,
+        "column_count": column_count or dim_cols,
+        "headers": headers,
+        "key_column": key_column,
+        "suspicious_columns": suspicious_columns(headers),
+        "sample_rows": sample_rows,
+        "tracked_rows": tracked_rows,
+        "truncated": truncated,
     }
 
 
 def summarize_xlsx(path: Path) -> dict[str, object]:
-    sheet_names: list[str] = []
+    sheets: list[dict[str, object]] = []
     try:
         with zipfile.ZipFile(path) as zf:
-            with zf.open("xl/workbook.xml") as handle:
-                root = ET.fromstring(handle.read())
-            sheet_names = [node.attrib.get("name", "") for node in root.findall(".//{*}sheet") if node.attrib.get("name")]
+            shared_strings = read_shared_strings(zf)
+            for sheet_name, sheet_path in read_workbook_sheets(zf)[:MAX_SHEETS]:
+                try:
+                    sheets.append(summarize_xlsx_sheet(zf, sheet_name, sheet_path, shared_strings))
+                except Exception:
+                    sheets.append({
+                        "name": sheet_name,
+                        "row_count": 0,
+                        "column_count": 0,
+                        "headers": [],
+                        "key_column": "",
+                        "suspicious_columns": [],
+                        "sample_rows": [],
+                        "tracked_rows": {},
+                        "truncated": False,
+                    })
     except Exception:
-        pass
+        sheets = []
+    sheet_names = [sheet["name"] for sheet in sheets]
+    summary_bits = [
+        f"{sheet['name']}[{sheet.get('row_count', 0)}x{sheet.get('column_count', 0)}]"
+        for sheet in sheets[:4]
+    ]
     return {
         "parser": "xlsx-local",
-        "summary": f"{len(sheet_names)} sheet(s): {', '.join(sheet_names[:6]) if sheet_names else 'unknown'}",
-        "metadata": {"sheet_names": sheet_names},
+        "summary": f"{len(sheet_names)} sheet(s): {', '.join(summary_bits) if summary_bits else 'unknown'}",
+        "metadata": {"sheet_names": sheet_names, "sheets": sheets},
     }
 
 
@@ -454,12 +714,102 @@ def summarize_plaintext(path: Path) -> dict[str, object]:
     }
 
 
+def summarize_xls_legacy(path: Path) -> dict[str, object]:
+    return {
+        "parser": "xls-legacy",
+        "summary": "legacy .xls workbook (sheet metadata unavailable without extra parser)",
+        "metadata": {"format": "xls", "size_bytes": path.stat().st_size},
+    }
+
+
+def summarize_csv_change(previous: dict[str, object], current: dict[str, object]) -> list[str]:
+    notes: list[str] = []
+    prev_headers = [str(item) for item in previous.get("headers", [])]
+    curr_headers = [str(item) for item in current.get("headers", [])]
+    added_headers, removed_headers = compare_named_lists(prev_headers, curr_headers)
+    if added_headers:
+        notes.append(f"headers added: {', '.join(added_headers[:4])}")
+    if removed_headers:
+        notes.append(f"headers removed: {', '.join(removed_headers[:4])}")
+    prev_rows = int(previous.get("row_count", 0) or 0)
+    curr_rows = int(current.get("row_count", 0) or 0)
+    if prev_rows != curr_rows:
+        notes.append(f"rows {prev_rows} -> {curr_rows}")
+    prev_key = str(previous.get("key_column", "") or "")
+    curr_key = str(current.get("key_column", "") or "")
+    if prev_key != curr_key and curr_key:
+        notes.append(f"key column {prev_key or 'none'} -> {curr_key}")
+    row_changes = compare_row_signatures(
+        {str(k): str(v) for k, v in dict(previous.get("tracked_rows", {})).items()},
+        {str(k): str(v) for k, v in dict(current.get("tracked_rows", {})).items()},
+    )
+    if row_changes:
+        notes.append(f"tracked rows: {row_changes}")
+    if not notes:
+        notes.append("content changed; structural summary unchanged")
+    return notes
+
+
+def summarize_xlsx_change(previous: dict[str, object], current: dict[str, object]) -> list[str]:
+    notes: list[str] = []
+    prev_sheets = {str(sheet.get("name", "")): sheet for sheet in previous.get("sheets", []) if sheet.get("name")}
+    curr_sheets = {str(sheet.get("name", "")): sheet for sheet in current.get("sheets", []) if sheet.get("name")}
+    added_sheets, removed_sheets = compare_named_lists(list(prev_sheets), list(curr_sheets))
+    if added_sheets:
+        notes.append(f"sheets added: {', '.join(added_sheets[:4])}")
+    if removed_sheets:
+        notes.append(f"sheets removed: {', '.join(removed_sheets[:4])}")
+    for sheet_name in sorted(prev_sheets.keys() & curr_sheets.keys())[:4]:
+        before = prev_sheets[sheet_name]
+        after = curr_sheets[sheet_name]
+        sheet_notes: list[str] = []
+        if int(before.get("row_count", 0) or 0) != int(after.get("row_count", 0) or 0):
+            sheet_notes.append(f"rows {before.get('row_count', 0)} -> {after.get('row_count', 0)}")
+        if int(before.get("column_count", 0) or 0) != int(after.get("column_count", 0) or 0):
+            sheet_notes.append(f"cols {before.get('column_count', 0)} -> {after.get('column_count', 0)}")
+        added_headers, removed_headers = compare_named_lists(
+            [str(item) for item in before.get("headers", [])],
+            [str(item) for item in after.get("headers", [])],
+        )
+        if added_headers:
+            sheet_notes.append(f"headers +{', '.join(added_headers[:3])}")
+        if removed_headers:
+            sheet_notes.append(f"headers -{', '.join(removed_headers[:3])}")
+        row_changes = compare_row_signatures(
+            {str(k): str(v) for k, v in dict(before.get("tracked_rows", {})).items()},
+            {str(k): str(v) for k, v in dict(after.get("tracked_rows", {})).items()},
+        )
+        if row_changes:
+            sheet_notes.append(row_changes)
+        if sheet_notes:
+            notes.append(f"sheet {sheet_name}: {'; '.join(sheet_notes)}")
+    if not notes:
+        notes.append("content changed; workbook structure summary unchanged")
+    return notes
+
+
+def summarize_change(previous_entry: dict[str, object] | None, current_payload: dict[str, object]) -> list[str]:
+    if not previous_entry:
+        return []
+    previous_parser = str(previous_entry.get("parser", ""))
+    current_parser = str(current_payload.get("parser", ""))
+    previous_meta = dict(previous_entry.get("metadata", {}))
+    current_meta = dict(current_payload.get("metadata", {}))
+    if previous_parser == current_parser == "csv-local":
+        return summarize_csv_change(previous_meta, current_meta)
+    if previous_parser == current_parser == "xlsx-local":
+        return summarize_xlsx_change(previous_meta, current_meta)
+    return [f"summary: {previous_entry.get('summary', 'unknown')} -> {current_payload.get('summary', 'unknown')}"]
+
+
 def summarize_file(path: Path) -> dict[str, object]:
     ext = path.suffix.lower()
     if ext in {".csv", ".tsv"}:
         return summarize_csv(path)
     if ext in {".xlsx", ".xlsm"}:
         return summarize_xlsx(path)
+    if ext == ".xls":
+        return summarize_xls_legacy(path)
     if ext == ".docx":
         return summarize_docx(path)
     if ext == ".pptx":
@@ -524,11 +874,21 @@ def build_report(
     changed_paths: list[str],
     archived_paths: list[str],
     duplicate_paths: list[str],
+    change_summaries: dict[str, list[str]],
 ) -> str:
-    def bullets(items: list[str]) -> str:
+    def bullets(items: list[str], *, details: dict[str, list[str]] | None = None) -> str:
         if not items:
             return "- none\\n"
-        return "".join(f"- `{item}`\\n" for item in items[:20])
+        lines: list[str] = []
+        for item in items[:20]:
+            detail_lines = (details or {}).get(item, [])
+            if detail_lines:
+                lines.append(f"- `{item}` — {detail_lines[0]}\\n")
+                for extra in detail_lines[1:3]:
+                    lines.append(f"  - {extra}\\n")
+            else:
+                lines.append(f"- `{item}`\\n")
+        return "".join(lines)
 
     lines = [
         "# Raw Intake Report",
@@ -557,7 +917,7 @@ def build_report(
         "",
         "## Changed Files",
         "",
-        bullets(sorted(changed_paths)),
+        bullets(sorted(changed_paths), details=change_summaries),
         "",
         "## Archived Files",
         "",
@@ -594,6 +954,7 @@ def main() -> int:
     lock_entries: dict[str, object] = {}
     hash_to_primary: dict[str, str] = {}
     duplicate_paths: list[str] = []
+    change_summaries: dict[str, list[str]] = {}
 
     candidates: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(raw_root):
@@ -615,8 +976,10 @@ def main() -> int:
         summary_payload = summarize_file(path)
         existing = rows_by_path.get(rel)
         old_hash = None
+        previous_entry = None
         if isinstance(previous_lock, dict) and rel in previous_lock:
-            old_hash = previous_lock[rel].get("content_hash")
+            previous_entry = previous_lock[rel]
+            old_hash = previous_entry.get("content_hash")
 
         if existing is None:
             source_id = next_source_id(existing_ids, content_hash)
@@ -642,6 +1005,7 @@ def main() -> int:
             if old_hash and old_hash != content_hash and existing.get("status") != "archived":
                 existing["status"] = "new"
                 changed_paths.append(rel)
+                change_summaries[rel] = summarize_change(previous_entry, summary_payload)
 
         primary = hash_to_primary.setdefault(content_hash, rel)
         duplicate_of = None if primary == rel else rows_by_path[primary]["source_id"]
@@ -659,6 +1023,8 @@ def main() -> int:
             "summary": summary_payload["summary"],
             "metadata": summary_payload["metadata"],
             "duplicate_of": duplicate_of,
+            "previous_content_hash": old_hash or "",
+            "change_summary": change_summaries.get(rel, []),
         }
 
     for row in rows:
@@ -668,7 +1034,7 @@ def main() -> int:
             archived_paths.append(rel)
 
     rows.sort(key=lambda row: (row.get("status", ""), row.get("raw_rel_path", "")))
-    report_text = build_report(raw_root, rows, kinds, new_paths, changed_paths, archived_paths, duplicate_paths)
+    report_text = build_report(raw_root, rows, kinds, new_paths, changed_paths, archived_paths, duplicate_paths, change_summaries)
 
     if args.dry_run:
         print("ingest_raw: DRY RUN")
@@ -677,7 +1043,7 @@ def main() -> int:
 
     write_manifest(rows)
     write_lock({
-        "llm_wiki_version": "1.2.0",
+        "llm_wiki_version": "1.2.2",
         "generated_at": utc_now(),
         "raw_root": str(raw_root),
         "summary": {
@@ -709,7 +1075,7 @@ if __name__ == "__main__":
 
 
 UNTRACKED_RAW_CHECK = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import csv
 import os
@@ -792,7 +1158,7 @@ if __name__ == "__main__":
 
 
 PROVENANCE_CHECK = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import csv
 import hashlib
@@ -845,6 +1211,7 @@ def main() -> int:
     fresh = 0
     stale: list[tuple[str, str, str]] = []
     no_hash: list[str] = []
+    unresolved: list[str] = []
     session_exempt = 0
 
     for path in sorted(WIKI_ROOT.rglob("*.md")):
@@ -901,7 +1268,7 @@ def main() -> int:
                     current,
                 ))
         else:
-            fresh += 1  # can't check, assume fresh
+            unresolved.append(path.relative_to(ROOT).as_posix())
 
     if stale:
         print(f"provenance_check: {len(stale)} STALE page(s) detected")
@@ -916,7 +1283,12 @@ def main() -> int:
         for page in no_hash:
             print(f"  {page}")
 
-    if not stale:
+    if unresolved:
+        print(f"provenance_check: {len(unresolved)} page(s) with unresolved source")
+        for page in unresolved:
+            print(f"  {page}")
+
+    if not stale and not no_hash and not unresolved:
         print(
             f"provenance_check: OK ({checked} checked, {fresh} fresh, "
             f"{session_exempt} session-exempt, {len(no_hash)} without hash)"
@@ -931,7 +1303,7 @@ if __name__ == "__main__":
 
 
 STALE_REPORT = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import argparse
 import csv
@@ -973,6 +1345,16 @@ def parse_frontmatter(path: Path) -> dict[str, str]:
             key, value = line.split(":", 1)
             result[key.strip()] = value.strip()
     return result
+
+
+def parse_list_field(value: str) -> list[str]:
+    raw = value.strip()
+    if not raw:
+        return []
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    items = [item.strip().strip("'").strip('"') for item in raw.split(",")]
+    return [item for item in items if item]
 
 
 def load_manifest() -> list[dict[str, str]]:
@@ -1037,11 +1419,11 @@ def build_report(
         f"- session_exempt: `{session_exempt}`",
     ]
     lines += section("Fresh Pages", fresh)
-    lines += section("Stale Pages", stale)
+    lines += section("Pages Needing Recompile (stale)", stale)
     lines += section("Pages Missing source_hash", missing_hash)
     lines += section("Pages With Unresolved source", unresolved)
     lines += section("Pages Pointing At Archived Sources", archived_refs)
-    lines += section("Manifest Rows Still Marked new", manifest_new)
+    lines += section("Raw Files Still Waiting For First Compile", manifest_new)
     return "\\n".join(lines).rstrip() + "\\n"
 
 
@@ -1079,6 +1461,7 @@ def main() -> int:
             continue
         rel = path.relative_to(ROOT).as_posix()
         source = fm.get("source", "")
+        compiled_from = parse_list_field(fm.get("compiled_from", ""))
         source_hash = fm.get("source_hash", "")
         if source == "session":
             session_exempt += 1
@@ -1092,14 +1475,27 @@ def main() -> int:
             unresolved.append(rel)
             continue
 
-        if row.get("source_id"):
-            referenced_source_ids.add(row["source_id"])
-        if row.get("raw_rel_path"):
-            referenced_paths.add(row["raw_rel_path"])
+        referenced_rows = [row]
+        for extra in compiled_from:
+            extra_row = resolve_row(extra, rows)
+            if not extra_row:
+                unresolved.append(f"{rel} <- {extra}")
+                continue
+            referenced_rows.append(extra_row)
+
+        for referenced_row in referenced_rows:
+            if referenced_row.get("source_id"):
+                referenced_source_ids.add(referenced_row["source_id"])
+            if referenced_row.get("raw_rel_path"):
+                referenced_paths.add(referenced_row["raw_rel_path"])
 
         if row.get("status") == "archived":
             archived_refs.append(rel)
             continue
+
+        for extra_row in referenced_rows[1:]:
+            if extra_row.get("status") == "archived" and extra_row.get("raw_rel_path"):
+                archived_refs.append(f"{rel} <- {extra_row['raw_rel_path']}")
 
         current_hash = ""
         if raw_root:
@@ -1154,8 +1550,366 @@ if __name__ == "__main__":
 """
 
 
+DELTA_COMPILE = """from __future__ import annotations
+# llm-wiki-version: 1.2.2
+
+import argparse
+import csv
+import hashlib
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WIKI_ROOT = ROOT / "docs" / "wiki"
+MANIFEST = ROOT / "manifests" / "raw_sources.csv"
+LOCK_FILE = ROOT / "manifests" / "raw_index.json"
+REPORT_FILE = ROOT / "manifests" / "delta_compile_report.md"
+DRAFT_DIR = WIKI_ROOT / "drafts"
+DEFAULT_RAW_ROOT = (ROOT.parent / "__RAW_ROOT_NAME__").resolve()
+FRONTMATTER_RE = re.compile(r"^---\\n(.*?)\\n---", re.DOTALL)
+SKIP_FILES = {"index.md", "log.md", "README.md", "SCHEMA.md"}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def sha256_prefix(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def slugify(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    return value.strip("-") or "draft"
+
+
+def parse_frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    result: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            result[key.strip()] = value.strip()
+    return result
+
+
+def parse_list_field(value: str) -> list[str]:
+    raw = value.strip()
+    if not raw:
+        return []
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return [item.strip().strip("'").strip('"') for item in raw.split(",") if item.strip()]
+
+
+def load_manifest() -> list[dict[str, str]]:
+    if not MANIFEST.exists():
+        return []
+    with MANIFEST.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [{key: (value or "") for key, value in row.items()} for row in csv.DictReader(handle)]
+
+
+def load_lock() -> dict[str, dict]:
+    if not LOCK_FILE.exists():
+        return {}
+    try:
+        data = json.loads(LOCK_FILE.read_text(encoding="utf-8"))
+        files = data.get("files", {})
+        return files if isinstance(files, dict) else {}
+    except Exception:
+        return {}
+
+
+def resolve_row(source_value: str, rows: list[dict[str, str]]) -> dict[str, str] | None:
+    for row in rows:
+        if source_value == row.get("source_id") or source_value == row.get("raw_rel_path"):
+            return row
+    for row in rows:
+        if row.get("source_id") and row["source_id"] in source_value:
+            return row
+        if row.get("raw_rel_path") and source_value.endswith(row["raw_rel_path"]):
+            return row
+    return None
+
+
+def choose_target_page(row: dict[str, str]) -> str:
+    compiled_into = (row.get("compiled_into") or "").strip()
+    if compiled_into:
+        first = compiled_into.split(",")[0].strip()
+        if first:
+            return first
+    stem = slugify(Path(row.get("filename") or row.get("raw_rel_path") or row.get("source_id") or "source").stem)
+    return f"docs/wiki/{stem}.md"
+
+
+def draft_path(target_page: str, source_id: str) -> Path:
+    stem = slugify(Path(target_page).stem)
+    return DRAFT_DIR / f"{stem}--{source_id}.md"
+
+
+def unique_items(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def render_draft(
+    *,
+    title: str,
+    source_id: str,
+    source_hash: str,
+    target_page: str,
+    raw_rel_path: str,
+    source_summary: str,
+    change_summary: list[str],
+    compiled_from: list[str],
+    reason: str,
+) -> str:
+    compiled_from_values = unique_items(compiled_from or [source_id])
+    compiled_from_line = f"[{', '.join(compiled_from_values)}]"
+    lines = [
+        "---",
+        f"title: {title}",
+        f"source: {source_id}",
+        f"source_hash: {source_hash}",
+        f"compiled_at: {utc_now()}",
+        f"compiled_from: {compiled_from_line}",
+        f"created: {today()}",
+        "tags: [draft, delta-compile]",
+        "status: draft",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## Why this draft exists",
+        "",
+        f"- reason: {reason}",
+        f"- suggested target page: `{target_page}`",
+        f"- raw source: `{raw_rel_path}`",
+        "",
+        "## Source Summary",
+        "",
+        f"- {source_summary or 'no summary available'}",
+        "",
+        "## Structured Change Summary",
+        "",
+    ]
+    if change_summary:
+        lines.extend(f"- {item}" for item in change_summary)
+    else:
+        lines.append("- no prior diff summary available")
+    lines.extend([
+        "",
+        "## Draft Notes",
+        "",
+        "- Pull confirmed facts from the raw source into the target page.",
+        "- Update the target page frontmatter with the current `source_hash` and `compiled_at`.",
+        "- Keep this draft until the recompile is merged, then delete it.",
+        "",
+    ])
+    return "\\n".join(lines)
+
+
+def build_report(stale_items: list[dict[str, object]], new_items: list[dict[str, object]], written_drafts: list[str]) -> str:
+    lines = [
+        "# Delta Compile Report",
+        "",
+        f"- generated_at: `{utc_now()}`",
+        f"- stale_pages: `{len(stale_items)}`",
+        f"- new_raw_sources: `{len(new_items)}`",
+        f"- drafts_written: `{len(written_drafts)}`",
+        "",
+        "> This report suggests recompilation work. It does not auto-overwrite wiki content.",
+        "",
+        "## Stale Pages",
+        "",
+    ]
+    if stale_items:
+        for item in stale_items:
+            lines.append(
+                f"- `{item['page_rel']}` <- `{item['raw_rel_path']}` "
+                f"(target: `{item['target_page']}`)"
+            )
+            for change in item.get("change_summary", [])[:3]:
+                lines.append(f"  - {change}")
+    else:
+        lines.append("- none")
+    lines.extend([
+        "",
+        "## New Raw Sources",
+        "",
+    ])
+    if new_items:
+        for item in new_items:
+            lines.append(
+                f"- `{item['raw_rel_path']}` -> suggested page `{item['target_page']}`"
+            )
+            lines.append(f"  - {item['source_summary']}")
+    else:
+        lines.append("- none")
+    lines.extend([
+        "",
+        "## Draft Files",
+        "",
+    ])
+    if written_drafts:
+        lines.extend(f"- `{path}`" for path in written_drafts)
+    else:
+        lines.append("- none")
+    return "\\n".join(lines).rstrip() + "\\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Generate manual delta-compile suggestions and optional wiki draft stubs.")
+    parser.add_argument("--raw-root", default=os.environ.get("PROJECT_RAW_ROOT", ""), help="Local raw root path")
+    parser.add_argument("--report-file", default=str(REPORT_FILE), help="Markdown report output path")
+    parser.add_argument("--write-drafts", action="store_true", help="Write draft markdown stubs into docs/wiki/drafts/")
+    parser.add_argument("--dry-run", action="store_true", help="Print the report without writing files")
+    args = parser.parse_args()
+
+    raw_root = None
+    if args.raw_root:
+        candidate = Path(args.raw_root).expanduser().resolve()
+        if candidate.exists():
+            raw_root = candidate
+    elif DEFAULT_RAW_ROOT.exists():
+        raw_root = DEFAULT_RAW_ROOT
+
+    rows = load_manifest()
+    lock = load_lock()
+    referenced_ids: set[str] = set()
+    referenced_paths: set[str] = set()
+    stale_items: list[dict[str, object]] = []
+    new_items: list[dict[str, object]] = []
+    written_drafts: list[str] = []
+
+    for path in sorted(WIKI_ROOT.rglob("*.md")):
+        if path.name in SKIP_FILES or "drafts" in path.parts:
+            continue
+        fm = parse_frontmatter(path)
+        if not fm:
+            continue
+        source = fm.get("source", "")
+        if source == "session":
+            continue
+        row = resolve_row(source, rows)
+        if not row:
+            continue
+        referenced_ids.add(row.get("source_id", ""))
+        referenced_paths.add(row.get("raw_rel_path", ""))
+        for extra in parse_list_field(fm.get("compiled_from", "")):
+            extra_row = resolve_row(extra, rows)
+            if extra_row:
+                referenced_ids.add(extra_row.get("source_id", ""))
+                referenced_paths.add(extra_row.get("raw_rel_path", ""))
+        source_hash = fm.get("source_hash", "")
+        current_hash = ""
+        if raw_root:
+            source_path = raw_root / row.get("raw_rel_path", "")
+            if source_path.exists():
+                current_hash = sha256_prefix(source_path)
+        if not current_hash and row.get("raw_rel_path") in lock:
+            current_hash = lock[row["raw_rel_path"]].get("content_hash", "")
+        if not source_hash or not current_hash or source_hash == current_hash:
+            continue
+        lock_entry = lock.get(row.get("raw_rel_path", ""), {})
+        target_page = path.relative_to(ROOT).as_posix()
+        compiled_from = unique_items([row["source_id"]] + parse_list_field(fm.get("compiled_from", "")))
+        stale_items.append({
+            "page_rel": target_page,
+            "target_page": target_page,
+            "raw_rel_path": row.get("raw_rel_path", ""),
+            "source_id": row.get("source_id", ""),
+            "source_hash": current_hash,
+            "source_summary": lock_entry.get("summary", ""),
+            "change_summary": list(lock_entry.get("change_summary", [])),
+            "compiled_from": compiled_from,
+            "reason": f"source hash changed ({source_hash} -> {current_hash})",
+        })
+
+    for row in rows:
+        raw_rel_path = row.get("raw_rel_path", "")
+        source_id = row.get("source_id", "")
+        if row.get("status") != "new" or not raw_rel_path:
+            continue
+        if source_id in referenced_ids or raw_rel_path in referenced_paths:
+            continue
+        lock_entry = lock.get(raw_rel_path, {})
+        new_items.append({
+            "raw_rel_path": raw_rel_path,
+            "source_id": source_id,
+            "source_hash": lock_entry.get("content_hash", ""),
+            "source_summary": lock_entry.get("summary", ""),
+            "change_summary": list(lock_entry.get("change_summary", [])),
+            "compiled_from": [source_id],
+            "target_page": choose_target_page(row),
+            "reason": "new raw source has not been compiled into wiki yet",
+        })
+
+    if args.write_drafts and not args.dry_run:
+        DRAFT_DIR.mkdir(parents=True, exist_ok=True)
+        for item in stale_items + new_items:
+            title = f"Draft - {Path(str(item['target_page'])).stem.replace('-', ' ').title()}"
+            draft = draft_path(str(item["target_page"]), str(item["source_id"]))
+            draft.write_text(
+                render_draft(
+                    title=title,
+                    source_id=str(item["source_id"]),
+                    source_hash=str(item["source_hash"]),
+                    target_page=str(item["target_page"]),
+                    raw_rel_path=str(item["raw_rel_path"]),
+                    source_summary=str(item["source_summary"]),
+                    change_summary=[str(entry) for entry in item.get("change_summary", [])],
+                    compiled_from=[str(entry) for entry in item.get("compiled_from", []) if str(entry)],
+                    reason=str(item["reason"]),
+                ),
+                encoding="utf-8",
+            )
+            written_drafts.append(draft.relative_to(ROOT).as_posix())
+
+    report_text = build_report(stale_items, new_items, written_drafts)
+    if args.dry_run:
+        print(report_text)
+    else:
+        report_path = Path(args.report_file).expanduser().resolve()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report_text, encoding="utf-8")
+        print(f"delta_compile: wrote {report_path}")
+    print(
+        f"delta_compile: OK ({len(stale_items)} stale page(s), "
+        f"{len(new_items)} new raw source(s), {len(written_drafts)} draft(s))"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
 VERSION_CHECK = """from __future__ import annotations
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 
 import json
 import re
@@ -1445,9 +2199,10 @@ python3 scripts/ingest_raw.py
 ```bash
 python3 scripts/untracked_raw_check.py
 python3 scripts/stale_report.py
+python3 scripts/delta_compile.py --write-drafts
 ```
 
-前者找漏登 raw，后者找已经过期的 wiki 页面。
+前者找漏登 raw，第二个找已经过期的 wiki 页面，第三个只起草重编译草稿，不会乱改现有页面。
 
 ## 2. 默认范式
 
@@ -1504,7 +2259,7 @@ This project uses a wiki-first knowledge system. Knowledge lives in `docs/wiki/`
 Normal operations are cheap. Full audit/recompilation are disaster recovery, not regular workflow.
 - Session start: read 3 files (index, status, log). ~2K tokens. Never read all pages upfront.
 - During work: read specific pages one at a time, only when needed.
-- Structural checks: Python scripts (`wiki_check.py`, `raw_manifest_check.py`, `untracked_raw_check.py`, `stale_report.py`, `provenance_check.py`) — zero LLM tokens.
+- Structural checks: Python scripts (`wiki_check.py`, `raw_manifest_check.py`, `untracked_raw_check.py`, `stale_report.py`, `provenance_check.py`, `delta_compile.py`) — zero LLM tokens unless you choose to feed the draft output back into an LLM.
 - If every session does incremental writeback, you never need full audit or recompilation.
 
 ### Rules
@@ -1547,6 +2302,9 @@ python3 scripts/raw_manifest_check.py
 ---
 title: 页面标题
 source: 编译来源（raw 文件路径、URL、或 "session" 表示来自对话）
+source_hash: a1b2c3d4e5f67890
+compiled_at: 2026-04-07T12:00:00+00:00
+compiled_from: [src_a1b2c3d4e5, src_f6g7h8i9j0]
 created: 创建日期 (YYYY-MM-DD)
 updated: 最后更新日期 (YYYY-MM-DD)
 tags: [标签1, 标签2]
@@ -1564,6 +2322,8 @@ status: current / draft / stale
 - `tags` — 分类标签，Obsidian 可直接用
 - `status` — `current`（默认）/ `draft`（未确认）/ `stale`（可能过期）
 - `source_hash` — 编译时源文件的 SHA-256 前 16 位。文件来源页面要填；`source: session` 的页面可以省略。`provenance_check.py` 用它检测源文件是否已变更。源文件变了 → 页面标记为 stale。
+- `compiled_at` — 最近一次把 raw 编译进这页的时间戳（UTC ISO-8601）。不是装饰，是让人一眼知道这页最后一次吃料是什么时候。
+- `compiled_from` — 可选多源列表，写成 `[src_a, src_b]`。`source` 仍然是主来源，`compiled_from` 用来记录这页还吃了哪些 source。
 
 ### 为什么这样设计
 - AI 读一个页面就知道信息从哪来，不用额外查 manifest
@@ -1653,9 +2413,10 @@ GitHub 里只保留 manifest 和编译结果。
 ```bash
 python3 scripts/ingest_raw.py
 python3 scripts/stale_report.py
+python3 scripts/delta_compile.py --write-drafts
 ```
 
-前者把本地 raw 编成 manifest + lock + intake report，后者告诉你哪些 wiki 页面已经 stale。
+前者把本地 raw 编成 manifest + lock + intake report，第二个告诉你哪些 wiki 页面已经 stale，第三个只生成手动草稿，不会偷偷覆盖现有 wiki。
 """,
         target / "docs" / "wiki" / "github-and-raw-strategy.md": f"""---
 title: GitHub and Raw Strategy
@@ -1697,11 +2458,12 @@ status: current
         target / "scripts" / "untracked_raw_check.py": UNTRACKED_RAW_CHECK,
         target / "scripts" / "provenance_check.py": PROVENANCE_CHECK,
         target / "scripts" / "stale_report.py": STALE_REPORT.replace("__RAW_ROOT_NAME__", raw_root_name),
+        target / "scripts" / "delta_compile.py": DELTA_COMPILE.replace("__RAW_ROOT_NAME__", raw_root_name),
         target / "scripts" / "init_raw_root.py": INIT_RAW_ROOT.format(raw_root_name=raw_root_name),
         target / "scripts" / "export_memory_repo.py": EXPORT_MEMORY_REPO,
         target / "scripts" / "version_check.py": VERSION_CHECK,
         target / "scripts" / "upgrade.sh": """#!/usr/bin/env bash
-# llm-wiki-version: 1.2.0
+# llm-wiki-version: 1.2.2
 # Upgrade LLM-wiki scripts to latest version.
 # Updates validation scripts and CI only. Never touches wiki content.
 set -euo pipefail

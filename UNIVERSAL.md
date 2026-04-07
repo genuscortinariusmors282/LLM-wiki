@@ -77,9 +77,10 @@ When a batch of new raw files arrives, don't hand-edit the manifest like a marty
 ```bash
 python3 scripts/ingest_raw.py
 python3 scripts/stale_report.py
+python3 scripts/delta_compile.py --write-drafts
 ```
 
-The first updates the raw index and low-cost structural metadata. The second tells you what has gone stale.
+The first updates the raw index and low-cost structural metadata. The second tells you what has gone stale. The third writes manual draft stubs so recompilation work starts from structure instead of blank-page theater.
 
 ---
 
@@ -123,7 +124,7 @@ This project uses a wiki-first knowledge system. Knowledge lives in `docs/wiki/`
 Normal operations are cheap. The wiki is designed for incremental updates, not bulk reads.
 - **Session start**: read 3 files (index, status, log). ~2K tokens.
 - **During work**: read specific pages one at a time, only when needed.
-- **Structural checks**: `wiki_check.py`, `raw_manifest_check.py`, `untracked_raw_check.py`, `provenance_check.py`, and `stale_report.py` are Python scripts. Zero LLM tokens.
+- **Structural checks**: `wiki_check.py`, `raw_manifest_check.py`, `untracked_raw_check.py`, `provenance_check.py`, `stale_report.py`, and `delta_compile.py` are Python scripts. Zero LLM tokens unless you choose to feed the generated drafts back into an LLM.
 - **Never read all wiki pages upfront.** If the protocol is followed, you never need to.
 
 Full audit and recompilation are **disaster recovery**, not normal workflow:
@@ -137,6 +138,9 @@ Every wiki page (except index.md and log.md) must start with YAML frontmatter:
 ---
 title: Page Title
 source: where this info came from (raw file path, URL, or "session")
+source_hash: a1b2c3d4e5f67890
+compiled_at: 2026-04-07T12:00:00+00:00
+compiled_from: [src_a1b2c3d4e5, src_f6g7h8i9j0]
 created: 2026-04-06
 tags: [relevant, tags]
 status: current
@@ -251,8 +255,9 @@ Under ~100 documents, LLMs reading files directly outperforms vector retrieval. 
 
 Current approach is two-layered:
 
-- `provenance_check.py` validates page-level `source_hash` for source-backed wiki pages
+- `provenance_check.py` validates page-level `source_hash` for source-backed wiki pages and fails on unresolved sources
 - `stale_report.py` compares current raw hashes, manifest status, and wiki frontmatter to tell you what needs recompilation
+- `delta_compile.py` turns stale pages and uncompiled raw into manual draft stubs with `source_hash`, `compiled_at`, and optional `compiled_from`
 
 Still local. Still deterministic. Still cheap.
 

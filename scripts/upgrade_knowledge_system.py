@@ -13,6 +13,7 @@ What gets UPDATED (safe to overwrite):
   - scripts/untracked_raw_check.py
   - scripts/provenance_check.py
   - scripts/stale_report.py
+  - scripts/delta_compile.py
   - scripts/version_check.py
   - scripts/upgrade.sh
   - scripts/init_raw_root.py
@@ -36,7 +37,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_URL = "https://github.com/Ss1024sS/LLM-wiki.git"
+REPO_URL = os.environ.get("LLM_WIKI_REPO_URL", "https://github.com/Ss1024sS/LLM-wiki.git")
 VERSION_RE = re.compile(r"# llm-wiki-version:\s*(\S+)")
 
 
@@ -64,19 +65,29 @@ def main() -> int:
     local_version = detect_local_version(project)
     print(f"Current version: {local_version}")
 
-    # Clone latest LLM-wiki to temp dir
+    local_repo = Path(REPO_URL).expanduser().resolve()
+    use_local_repo = (
+        local_repo.exists()
+        and (local_repo / "skills" / "knowledge-system-bootstrap" / "scripts" / "bootstrap_knowledge_system.py").exists()
+    )
+
+    # Clone latest LLM-wiki to temp dir unless a local working tree override was supplied.
     print("Fetching latest LLM-wiki...")
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", REPO_URL, str(tmp / "repo")],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"Error cloning: {result.stderr}")
-            return 1
+        repo_root = local_repo if use_local_repo else (tmp / "repo")
+        if use_local_repo:
+            print(f"Using local LLM-wiki source: {repo_root}")
+        else:
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", REPO_URL, str(repo_root)],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                print(f"Error cloning: {result.stderr}")
+                return 1
 
-        bootstrap = tmp / "repo" / "skills" / "knowledge-system-bootstrap" / "scripts" / "bootstrap_knowledge_system.py"
+        bootstrap = repo_root / "skills" / "knowledge-system-bootstrap" / "scripts" / "bootstrap_knowledge_system.py"
         if not bootstrap.exists():
             print("Error: bootstrap script not found in cloned repo")
             return 1
@@ -107,6 +118,7 @@ def main() -> int:
             "scripts/untracked_raw_check.py",
             "scripts/provenance_check.py",
             "scripts/stale_report.py",
+            "scripts/delta_compile.py",
             "scripts/init_raw_root.py",
             "scripts/export_memory_repo.py",
             "scripts/version_check.py",
