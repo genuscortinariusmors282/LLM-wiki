@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased
+## v1.1.1 (2026-04-07)
 
 ### Fixed
 - `UNIVERSAL.md` no longer nests a triple-backtick YAML block inside a triple-backtick Markdown block; the Claude template now renders cleanly in stricter Markdown parsers.
 - Team collaboration guidance now includes an actual merge-conflict strategy instead of hand-waving with “Git handles conflicts”.
+- `README.md`, `SKILL.md`, and `release-notes-v1.1.0.md` now agree on the real bootstrap output count: `27 files`.
+- Upgrade docs no longer send users down the old `curl /tmp/upgrade.py` path; the documented flow is now the root `scripts/upgrade.sh` wrapper.
+
+### Why it matters
+- Less doc drift
+- Fewer copy-paste footguns
+- Better odds that teams won't turn wiki merge conflicts into modern art
 
 ## v1.1.0 (2026-04-07)
 

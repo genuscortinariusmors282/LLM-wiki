@@ -159,7 +159,7 @@ bash scripts/upgrade.sh /path/to/your-project
 
 - [UNIVERSAL.md](./UNIVERSAL.md) — Setup guide + migration path + FAQ + templates for every AI
 - [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md) — Full rationale (CN+EN), GitHub/raw split, provenance roadmap
-- [docs/release-notes-v1.1.0.md](./docs/release-notes-v1.1.0.md) — Latest release: auto-update, upgrade path, slash commands
+- [docs/release-notes-v1.1.1.md](./docs/release-notes-v1.1.1.md) — Latest release: doc drift cleanup, safer templates, better team merge guidance
 - [examples/demo-project/](./examples/demo-project/) — What a bootstrapped project looks like after 3 sessions
 
 ---
