@@ -89,6 +89,7 @@ This project uses a wiki-first knowledge system. Knowledge lives in `docs/wiki/`
 ## Session Protocol (mandatory)
 
 ### Session Start (auto, no confirmation needed)
+0. Run `python3 scripts/version_check.py` — checks for updates, silent if current, prints notice if outdated
 1. Read `docs/wiki/index.md` — get the full page list
 2. Read `docs/wiki/current-status.md` — know where things stand
 3. Read `docs/wiki/log.md` — understand recent session history

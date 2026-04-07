@@ -447,6 +447,63 @@ if __name__ == "__main__":
 """
 
 
+VERSION_CHECK = """from __future__ import annotations
+# llm-wiki-version: 1.0.1
+
+import json
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+GITHUB_API = "https://api.github.com/repos/Ss1024sS/LLM-wiki/releases/latest"
+VERSION_RE = re.compile(r"# llm-wiki-version:\\s*(\\S+)")
+SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
+def get_local_version() -> str:
+    for script in ["wiki_check.py", "raw_manifest_check.py", "provenance_check.py"]:
+        path = SCRIPTS_DIR / script
+        if path.exists():
+            m = VERSION_RE.search(path.read_text(encoding="utf-8"))
+            if m:
+                return m.group(1)
+    return "unknown"
+
+
+def get_remote_version() -> tuple[str, str]:
+    try:
+        req = urllib.request.Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+            tag = data.get("tag_name", "").lstrip("v")
+            url = data.get("html_url", "")
+            return tag, url
+    except Exception:
+        return "", ""
+
+
+def main() -> int:
+    local = get_local_version()
+    remote, release_url = get_remote_version()
+    if not remote:
+        return 0
+    if local == "unknown":
+        print(f"[llm-wiki] Could not detect local version. Latest is v{remote}")
+        return 0
+    if remote and local != remote:
+        print(f"[llm-wiki] Update available: v{local} -> v{remote}")
+        print(f"[llm-wiki] Run: bash scripts/upgrade.sh")
+        if release_url:
+            print(f"[llm-wiki] Release notes: {release_url}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
 INIT_RAW_ROOT = """from __future__ import annotations
 
 import argparse
@@ -650,11 +707,12 @@ def main() -> int:
 
 ## 1. 每个新 session 默认先干嘛
 
-只要任务不是纯闲聊，默认先读：
+只要任务不是纯闲聊，默认先：
 
-1. `docs/wiki/index.md`
-2. `docs/wiki/current-status.md`
-3. `docs/wiki/log.md`
+0. `python3 scripts/version_check.py` — 检查更新（有新版才提示，没有就静默）
+1. 读 `docs/wiki/index.md`
+2. 读 `docs/wiki/current-status.md`
+3. 读 `docs/wiki/log.md`
 
 别一上来就靠 session 硬猜。
 
@@ -696,6 +754,7 @@ This project uses a wiki-first knowledge system. Knowledge lives in `docs/wiki/`
 ## Session Protocol (mandatory)
 
 ### Session Start
+0. Run `python3 scripts/version_check.py` — check for LLM-wiki updates (silent if up to date)
 1. Read `docs/wiki/index.md` — get the full page list
 2. Read `docs/wiki/current-status.md` — know where things stand
 3. Read `docs/wiki/log.md` — understand recent session history
@@ -904,6 +963,7 @@ status: current
         target / "scripts" / "provenance_check.py": PROVENANCE_CHECK,
         target / "scripts" / "init_raw_root.py": INIT_RAW_ROOT.format(raw_root_name=raw_root_name),
         target / "scripts" / "export_memory_repo.py": EXPORT_MEMORY_REPO,
+        target / "scripts" / "version_check.py": VERSION_CHECK,
         target / "scripts" / "upgrade.sh": """#!/usr/bin/env bash
 # llm-wiki-version: 1.0.1
 # Upgrade LLM-wiki scripts to latest version.
@@ -925,6 +985,7 @@ fi
         target / ".cursorrules": f"""This project ({project_name}) uses a wiki-first knowledge system.
 
 Before starting any non-trivial task:
+0. Run: python3 scripts/version_check.py (silent if up to date)
 1. Read docs/wiki/index.md for the wiki page list
 2. Read docs/wiki/current-status.md for project state
 3. Read docs/wiki/log.md for recent session history
@@ -952,6 +1013,7 @@ Rules:
         target / ".windsurfrules": f"""This project ({project_name}) uses a wiki-first knowledge system.
 
 Before starting any non-trivial task:
+0. Run: python3 scripts/version_check.py (silent if up to date)
 1. Read docs/wiki/index.md for the wiki page list
 2. Read docs/wiki/current-status.md for project state
 3. Read docs/wiki/log.md for recent session history

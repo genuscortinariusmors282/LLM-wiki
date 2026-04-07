@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.0 (2026-04-07)
+
+Auto-update + community hardening.
+
+### Added
+- **Auto update check**: `version_check.py` runs at session start, silently checks GitHub for new releases. Prints notice only when outdated. Zero noise when current.
+- **Upgrade path**: `scripts/upgrade.sh` — one command to pull latest scripts without touching wiki content or customized configs
+- **Version markers**: every generated script has `# llm-wiki-version: X.Y.Z` header for version detection
+- **Security policy**: SECURITY.md with scope, reporting channel, and what counts
+- **Issue templates**: bug report + feature request templates
+- **Code of Conduct**: Contributor Covenant
+
+### Changed
+- Session protocol Step 0: version check before reading wiki (all 5 platform templates)
+- Bootstrap now generates 24 files (was 22, +upgrade.sh +version_check.py)
+
+---
+
 ## v1.0.1 (2026-04-07)
 
 Patch release. This one fixes the parts that looked finished but still had sharp edges.
