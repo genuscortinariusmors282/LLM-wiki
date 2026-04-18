@@ -1,0 +1,13 @@
+name: Wiki Lint
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check wiki structure
+        run: python3 scripts/wiki_check.py
+      - name: Check raw manifest
+        run: python3 scripts/raw_manifest_check.py
+      - name: Check for untracked raw files
+        run: python3 scripts/untracked_raw_check.py
