@@ -52,7 +52,9 @@ def main() -> int:
                         help="Skip raw-file resolution; only verify that every non-session "
                              "page has a source_hash field. Safe to run without raw files.")
     args = parser.parse_args()
-    ci_mode = args.ci or os.environ.get("CI") == "true" or os.environ.get("LLM_WIKI_CI") == "1"
+    # Explicit opt-in only. Don't auto-detect generic CI=true — users may
+    # mount raw files in CI and want the full check.
+    ci_mode = args.ci or os.environ.get("LLM_WIKI_CI") == "1"
 
     if not WIKI_ROOT.exists():
         print("provenance_check: docs/wiki does not exist")

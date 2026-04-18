@@ -63,7 +63,9 @@ instead of vibes.
   files mounted vs. which run anywhere.
 - **`provenance_check.py --ci`**: structural-only mode that verifies
   every non-session page has a `source_hash` field without trying to
-  resolve raw files. Auto-detects via `CI=true` env var.
+  resolve raw files. Opt-in only via `--ci` flag or `LLM_WIKI_CI=1`
+  env var (generic `CI=true` is intentionally NOT auto-detected so
+  CI runs that DO mount raw files still get the full check).
 - **End-to-end pytest harness**: 35 tests under `tests/` cover
   bootstrap output, every check's pass/fail behavior on poisoned
   fixtures, plugin manifests, backup behavior, schema compat, and CI
