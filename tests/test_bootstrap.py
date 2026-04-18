@@ -225,6 +225,34 @@ def test_raw_manifest_check_malformed_meta(project: Path) -> None:
     assert "malformed" in (result.stdout + result.stderr)
 
 
+def test_wiki_size_report_runs_on_fresh_bootstrap(project: Path) -> None:
+    result = run([sys.executable, str(project / "scripts" / "wiki_size_report.py")])
+    assert result.returncode == 0, result.stdout
+    assert "GREEN" in result.stdout
+    assert "estimated tokens" in result.stdout
+
+
+def test_wiki_size_report_json_output(project: Path) -> None:
+    import json
+    result = run([sys.executable, str(project / "scripts" / "wiki_size_report.py"), "--json"])
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert data["bucket"] == "GREEN"
+    assert data["page_count"] >= 5
+    assert "thresholds" in data
+
+
+def test_wiki_size_report_thresholds_promote(project: Path) -> None:
+    """Stuff a page until it crosses YELLOW, confirm bucket changes."""
+    bloat = project / "docs" / "wiki" / "current-status.md"
+    body = bloat.read_text(encoding="utf-8")
+    body += "\n" + ("padding line. " * 12_000)
+    bloat.write_text(body, encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "wiki_size_report.py")])
+    assert result.returncode == 0
+    assert "YELLOW" in result.stdout or "RED" in result.stdout
+
+
 def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "neverwritten"
     result = run([sys.executable, str(BOOTSTRAP), str(target), "X", "--dry-run"])

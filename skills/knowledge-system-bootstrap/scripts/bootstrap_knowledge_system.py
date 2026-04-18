@@ -51,6 +51,7 @@ TEMPLATE_TO_TARGET: list[tuple[str, str]] = [
     ("scripts/stale_report.py", "scripts/stale_report.py"),
     ("scripts/delta_compile.py", "scripts/delta_compile.py"),
     ("scripts/version_check.py", "scripts/version_check.py"),
+    ("scripts/wiki_size_report.py", "scripts/wiki_size_report.py"),
     ("scripts/init_raw_root.py", "scripts/init_raw_root.py"),
     ("scripts/export_memory_repo.py", "scripts/export_memory_repo.py"),
     ("scripts/upgrade.sh", "scripts/upgrade.sh"),
