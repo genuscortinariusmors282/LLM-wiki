@@ -1,5 +1,5 @@
 from __future__ import annotations
-# llm-wiki-version: 1.2.2
+# llm-wiki-version: 1.3.0
 
 import re
 import sys
@@ -20,17 +20,80 @@ REQUIRED_FILES = [
     "github-and-raw-strategy.md",
 ]
 
-LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 LOG_HEADER_RE = re.compile(r"^## \[\d{4}-\d{2}-\d{2}\] .+ \| .+$")
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 FRONTMATTER_EXEMPT = {"index.md", "log.md", "README.md", "SCHEMA.md"}
 REQUIRED_FRONTMATTER_KEYS = {"title", "source", "created"}
 
+# Don't validate links inside fenced code (```), indented code, or inline code.
+FENCE_RE = re.compile(r"^(\s*)(```|~~~)")
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+LINK_OPEN_RE = re.compile(r"!?\[(?:[^\[\]\\]|\\.)*\]\(")
+
+
+def strip_inline_code(line: str) -> str:
+    return INLINE_CODE_RE.sub("", line)
+
+
+def iter_link_targets(text: str) -> list[str]:
+    """Return every (link target) found outside fenced/inline code.
+
+    Properly handles balanced parens inside the URL portion (rare but legal).
+    """
+    out: list[str] = []
+    in_fence = False
+    fence_marker = ""
+    for raw_line in text.splitlines():
+        m = FENCE_RE.match(raw_line)
+        if m:
+            marker = m.group(2)
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+            continue
+        if in_fence:
+            continue
+        line = strip_inline_code(raw_line)
+        pos = 0
+        while True:
+            m = LINK_OPEN_RE.search(line, pos)
+            if not m:
+                break
+            start = m.end()
+            depth = 1
+            i = start
+            while i < len(line) and depth > 0:
+                ch = line[i]
+                if ch == "\\" and i + 1 < len(line):
+                    i += 2
+                    continue
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            if depth == 0:
+                target = line[start:i].strip()
+                if target.startswith("<") and target.endswith(">"):
+                    target = target[1:-1].strip()
+                title_match = re.search(r'\s+["\'(].*["\')]$', target)
+                if title_match:
+                    target = target[: title_match.start()].strip()
+                out.append(target)
+                pos = i + 1
+            else:
+                pos = len(line)
+    return out
+
 
 def check_frontmatter(path: Path, text: str) -> list[str]:
     errs: list[str] = []
-    rel = path.name
-    if rel in FRONTMATTER_EXEMPT:
+    if path.name in FRONTMATTER_EXEMPT:
         return errs
     m = FRONTMATTER_RE.match(text)
     if not m:
@@ -49,14 +112,37 @@ def check_frontmatter(path: Path, text: str) -> list[str]:
 
 
 def resolve_link(source_file: Path, target: str) -> Path | None:
-    if target.startswith(("http://", "https://", "mailto:")):
+    if target.startswith(("http://", "https://", "mailto:", "tel:", "ftp://")):
         return None
     if target.startswith("#"):
         return None
-    target = target.split("#", 1)[0]
+    target = target.split("#", 1)[0].split("?", 1)[0]
     if not target:
         return None
     return (source_file.parent / target).resolve()
+
+
+def index_referenced_pages(index_path: Path) -> set[str]:
+    """Set of wiki-relative posix paths that index.md actually links to.
+
+    Uses real link parsing instead of substring matching, so a page named
+    `policy.md` doesn't accidentally pass because index.md mentions
+    `pricing-policy.md`.
+    """
+    if not index_path.exists():
+        return set()
+    text = index_path.read_text(encoding="utf-8")
+    refs: set[str] = set()
+    for raw_target in iter_link_targets(text):
+        resolved = resolve_link(index_path, raw_target)
+        if resolved is None:
+            continue
+        try:
+            rel = resolved.relative_to(WIKI_ROOT.resolve()).as_posix()
+        except ValueError:
+            continue
+        refs.add(rel)
+    return refs
 
 
 def main() -> int:
@@ -66,36 +152,32 @@ def main() -> int:
         return 1
 
     for rel in REQUIRED_FILES:
-        path = WIKI_ROOT / rel
-        if not path.exists():
+        if not (WIKI_ROOT / rel).exists():
             errors.append(f"missing required file: docs/wiki/{rel}")
 
     md_files = sorted(WIKI_ROOT.rglob("*.md"))
-    index_text = (WIKI_ROOT / "index.md").read_text(encoding="utf-8") if (WIKI_ROOT / "index.md").exists() else ""
+    index_refs = index_referenced_pages(WIKI_ROOT / "index.md")
+    EXEMPT_FROM_INDEX = {"README.md", "SCHEMA.md", "log.md", "index.md"}
 
     fm_ok = 0
     for path in md_files:
         text = path.read_text(encoding="utf-8")
 
-        # Frontmatter check
         fm_errors = check_frontmatter(path, text)
         errors.extend(fm_errors)
         if not fm_errors and path.name not in FRONTMATTER_EXEMPT:
             fm_ok += 1
 
         if path.name == "log.md":
-            headers = [line for line in text.splitlines() if line.startswith("## ")]
-            for header in headers:
-                if not LOG_HEADER_RE.match(header):
-                    errors.append(f"bad log header format in {path.relative_to(ROOT)}: {header}")
+            for line in text.splitlines():
+                if line.startswith("## ") and not LOG_HEADER_RE.match(line):
+                    errors.append(f"bad log header format in {path.relative_to(ROOT)}: {line}")
 
         rel = path.relative_to(WIKI_ROOT).as_posix()
-        if path.name != "index.md" and rel not in {"README.md", "SCHEMA.md", "log.md"}:
-            if rel not in index_text:
-                errors.append(f"index.md does not reference docs/wiki/{rel}")
+        if rel not in EXEMPT_FROM_INDEX and rel not in index_refs:
+            errors.append(f"index.md does not reference docs/wiki/{rel}")
 
-        for match in LINK_RE.finditer(text):
-            raw_target = match.group(1).strip()
+        for raw_target in iter_link_targets(text):
             resolved = resolve_link(path, raw_target)
             if resolved is None:
                 continue
@@ -112,6 +194,7 @@ def main() -> int:
     print(f"- markdown files: {len(md_files)}")
     print(f"- required files: {len(REQUIRED_FILES)}")
     print(f"- frontmatter valid: {fm_ok}")
+    print(f"- index.md links: {len(index_refs)}")
     print(f"- wiki root: {WIKI_ROOT}")
     return 0
 

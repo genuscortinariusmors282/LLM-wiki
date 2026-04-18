@@ -116,6 +116,41 @@ def test_wiki_check_catches_bad_log_header(project: Path) -> None:
     assert "log header" in result.stdout
 
 
+def test_wiki_check_substring_false_positive_caught(project: Path) -> None:
+    """Regression: pre-1.3.0 used substring match, so a page named `policy.md`
+    falsely passed the index check whenever `pricing-policy.md` was indexed.
+    """
+    wiki = project / "docs" / "wiki"
+    fm = "---\ntitle: X\nsource: session\ncreated: 2026-01-01\n---\n# X\n"
+    (wiki / "pricing-policy.md").write_text(fm, encoding="utf-8")
+    (wiki / "policy.md").write_text(fm, encoding="utf-8")
+    index = wiki / "index.md"
+    text = index.read_text(encoding="utf-8")
+    index.write_text(text + "\n- [Pricing](./pricing-policy.md)\n", encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "wiki_check.py")])
+    assert result.returncode == 1
+    assert "policy.md" in result.stdout
+
+
+def test_wiki_check_ignores_links_inside_code_fences(project: Path) -> None:
+    """Links inside ``` ... ``` blocks are illustrative, not real refs."""
+    page = project / "docs" / "wiki" / "current-status.md"
+    body = page.read_text(encoding="utf-8")
+    body += "\n```markdown\n[fake](./does-not-exist.md)\n```\n"
+    page.write_text(body, encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "wiki_check.py")])
+    assert result.returncode == 0, result.stdout
+
+
+def test_wiki_check_ignores_links_inside_inline_code(project: Path) -> None:
+    page = project / "docs" / "wiki" / "current-status.md"
+    body = page.read_text(encoding="utf-8")
+    body += "\nUse `[label](./bad.md)` to format inline code.\n"
+    page.write_text(body, encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "wiki_check.py")])
+    assert result.returncode == 0, result.stdout
+
+
 def test_raw_manifest_check_catches_duplicate_id(project: Path) -> None:
     manifest = project / "manifests" / "raw_sources.csv"
     manifest.write_text(
