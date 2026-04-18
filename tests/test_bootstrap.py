@@ -196,6 +196,37 @@ def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     assert not target.exists()
 
 
+def test_force_creates_bak(project: Path) -> None:
+    (project / "CLAUDE.md").write_text("# manual edit\n", encoding="utf-8")
+    result = run([
+        sys.executable,
+        str(BOOTSTRAP),
+        str(project),
+        "Test Project",
+        "--raw-root-name", "test_raw",
+        "--force",
+    ])
+    assert result.returncode == 0
+    bak_files = list(project.glob("CLAUDE.md.bak.*"))
+    assert len(bak_files) == 1
+    assert bak_files[0].read_text(encoding="utf-8") == "# manual edit\n"
+
+
+def test_force_no_backup_skips_bak(project: Path) -> None:
+    (project / "CLAUDE.md").write_text("# manual edit\n", encoding="utf-8")
+    result = run([
+        sys.executable,
+        str(BOOTSTRAP),
+        str(project),
+        "Test Project",
+        "--raw-root-name", "test_raw",
+        "--force",
+        "--no-backup",
+    ])
+    assert result.returncode == 0
+    assert not list(project.glob("CLAUDE.md.bak.*"))
+
+
 def test_no_force_skips_existing(project: Path) -> None:
     (project / "CLAUDE.md").write_text("# manual edit\n", encoding="utf-8")
     result = run([

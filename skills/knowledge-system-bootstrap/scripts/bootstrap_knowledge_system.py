@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import argparse
 import re
-from datetime import date
+import shutil
+from datetime import date, datetime
 from pathlib import Path
 
 __version__ = "1.3.0"
@@ -82,11 +83,19 @@ def write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def backup(path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = path.with_suffix(path.suffix + f".bak.{stamp}")
+    shutil.copy2(path, dest)
+    return dest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bootstrap a compile-first knowledge system into another repo.")
     parser.add_argument("target_dir", help="Target repository root")
     parser.add_argument("project_name", help="Human-readable project name")
-    parser.add_argument("--force", action="store_true", help="Overwrite existing files")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing files (a .bak.<timestamp> copy is kept unless --no-backup)")
+    parser.add_argument("--no-backup", action="store_true", help="When overwriting, skip the .bak file (only effective with --force)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without writing anything")
     parser.add_argument("--raw-root-name", help="Folder name for the local raw root")
     args = parser.parse_args()
@@ -104,7 +113,7 @@ def main() -> int:
     }
 
     created: list[Path] = []
-    overwritten: list[Path] = []
+    overwritten: list[tuple[Path, Path | None]] = []
     skipped: list[Path] = []
     unchanged: list[Path] = []
 
@@ -127,9 +136,12 @@ def main() -> int:
         elif dest.read_text(encoding="utf-8") == content:
             unchanged.append(dest)
         elif args.force:
+            bak_path: Path | None = None
             if not args.dry_run:
+                if not args.no_backup:
+                    bak_path = backup(dest)
                 write(dest, content)
-            overwritten.append(dest)
+            overwritten.append((dest, bak_path))
         else:
             skipped.append(dest)
 
@@ -144,8 +156,9 @@ def main() -> int:
             print(f"  + {p.relative_to(target)}")
     if overwritten:
         print(f"\nOverwritten ({len(overwritten)}):")
-        for p in overwritten:
-            print(f"  ! {p.relative_to(target)}")
+        for p, bak in overwritten:
+            suffix = f"  (backup: {bak.name})" if bak else "  (no backup)"
+            print(f"  ! {p.relative_to(target)}{suffix}")
     if unchanged:
         print(f"\nUnchanged ({len(unchanged)})")
     if skipped:
