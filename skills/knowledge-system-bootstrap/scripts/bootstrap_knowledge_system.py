@@ -42,6 +42,7 @@ TEMPLATE_TO_TARGET: list[tuple[str, str]] = [
     ("wiki/github-and-raw-strategy.md", "docs/wiki/github-and-raw-strategy.md"),
     ("manifests/README.md", "manifests/README.md"),
     ("manifests/raw_sources.csv", "manifests/raw_sources.csv"),
+    ("manifests/raw_sources.meta.json", "manifests/raw_sources.meta.json"),
     ("scripts/wiki_check.py", "scripts/wiki_check.py"),
     ("scripts/raw_manifest_check.py", "scripts/raw_manifest_check.py"),
     ("scripts/ingest_raw.py", "scripts/ingest_raw.py"),

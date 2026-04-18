@@ -188,6 +188,43 @@ def test_raw_manifest_check_catches_compiled_without_target(project: Path) -> No
     assert "compiled_into" in result.stdout
 
 
+def test_manifest_meta_json_created(project: Path) -> None:
+    import json
+    meta_path = project / "manifests" / "raw_sources.meta.json"
+    assert meta_path.exists()
+    data = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert data["schema_version"] == 1
+    assert "source_id" in data["columns"]
+
+
+def test_raw_manifest_check_legacy_compat(project: Path) -> None:
+    """Projects bootstrapped before meta.json existed should still pass."""
+    (project / "manifests" / "raw_sources.meta.json").unlink()
+    result = run([sys.executable, str(project / "scripts" / "raw_manifest_check.py")])
+    assert result.returncode == 0, result.stdout
+    assert "loaded from legacy" in result.stdout
+
+
+def test_raw_manifest_check_future_schema_skipped(project: Path) -> None:
+    """A future schema_version should not break old CI — script returns 0 with notice."""
+    import json
+    meta = project / "manifests" / "raw_sources.meta.json"
+    data = json.loads(meta.read_text(encoding="utf-8"))
+    data["schema_version"] = 99
+    meta.write_text(json.dumps(data), encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "raw_manifest_check.py")])
+    assert result.returncode == 0
+    assert "SKIPPED" in result.stdout
+
+
+def test_raw_manifest_check_malformed_meta(project: Path) -> None:
+    meta = project / "manifests" / "raw_sources.meta.json"
+    meta.write_text("not json {{{", encoding="utf-8")
+    result = run([sys.executable, str(project / "scripts" / "raw_manifest_check.py")])
+    assert result.returncode != 0
+    assert "malformed" in (result.stdout + result.stderr)
+
+
 def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "neverwritten"
     result = run([sys.executable, str(BOOTSTRAP), str(target), "X", "--dry-run"])
