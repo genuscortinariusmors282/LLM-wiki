@@ -1,5 +1,6 @@
 from __future__ import annotations
-# llm-wiki-version: 1.2.2
+# llm-wiki-version: 1.3.0
+# runtime: ci-safe (scans only what exists; missing PROJECT_RAW_ROOT is fine)
 
 import csv
 import os

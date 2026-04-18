@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.3.0 (2026-04-18)
+
+Maintainability + honest claims release. Full notes:
+[release-notes-v1.3.0.md](./docs/release-notes-v1.3.0.md).
+
+### Refactored
+- `bootstrap_knowledge_system.py` shrank from 2633 LOC to ~240 LOC. All
+  embedded scripts and markdown moved to `skills/knowledge-system-bootstrap/templates/`.
+  Every generated file is now a real file you can lint, test, and PR-review.
+
+### Fixed
+- `.gitignore` template stored literal `\n` instead of newlines, producing
+  a one-line file that didn't ignore anything.
+- `wiki_check.py` index reference check used substring matching, so a page
+  named `policy.md` falsely passed whenever `pricing-policy.md` was
+  referenced. Replaced with real markdown link parsing.
+- `wiki_check.py` no longer flags links inside fenced code or inline code.
+
+### Added
+- Claude plugin packaging: `.claude-plugin/plugin.json` + `marketplace.json`
+  + slash commands `/llm-wiki-bootstrap` and `/llm-wiki-status`.
+- `--force` now backs up existing files to `<file>.bak.<YYYYMMDD-HHMMSS>`
+  before overwriting. `--no-backup` opts out.
+- Manifest schema versioning via `manifests/raw_sources.meta.json` with
+  legacy compat for old projects and forward-compat (skip with notice
+  on unknown future schema_version).
+- `wiki_size_report.py` — estimates wiki tokens and buckets as
+  GREEN/YELLOW/RED/PURPLE with actionable advice. Makes the
+  "wiki before RAG" threshold measurable.
+- Runtime profile per script (`# runtime: ci-safe` / `# runtime: dev-only`)
+  + new wiki page `runtime-profile.md` documenting the split.
+- `provenance_check.py --ci` — structural-only mode that runs without
+  PROJECT_RAW_ROOT.
+- 35 pytest cases under `tests/` covering bootstrap, every check's
+  pass/fail paths, plugin manifests, backup behavior, schema compat,
+  and CI workflow constraints.
+
+### Changed
+- `.github/workflows/wiki-lint.yml` now runs the full ci-safe set
+  including `wiki_size_report` and `provenance_check --ci`.
+- Bootstrap output is now **32 files** (was 30).
+
 ## v1.2.2 (2026-04-07)
 
 ### Added

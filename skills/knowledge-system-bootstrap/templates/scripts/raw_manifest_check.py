@@ -1,5 +1,6 @@
 from __future__ import annotations
 # llm-wiki-version: 1.3.0
+# runtime: ci-safe (skips raw existence check when PROJECT_RAW_ROOT unset)
 
 import csv
 import json

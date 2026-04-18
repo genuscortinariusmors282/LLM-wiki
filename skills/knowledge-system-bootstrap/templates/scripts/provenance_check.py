@@ -1,6 +1,10 @@
 from __future__ import annotations
-# llm-wiki-version: 1.2.2
+# llm-wiki-version: 1.3.0
+# runtime: dev-only (needs PROJECT_RAW_ROOT pointing at real raw files)
+#   Use --ci to skip raw-file resolution and only verify that source_hash is
+#   present in every non-session page. That sub-check is safe to run in CI.
 
+import argparse
 import csv
 import hashlib
 import os
@@ -43,11 +47,18 @@ def load_manifest_paths() -> dict[str, Path]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Verify wiki pages reflect current raw sources.")
+    parser.add_argument("--ci", action="store_true",
+                        help="Skip raw-file resolution; only verify that every non-session "
+                             "page has a source_hash field. Safe to run without raw files.")
+    args = parser.parse_args()
+    ci_mode = args.ci or os.environ.get("CI") == "true" or os.environ.get("LLM_WIKI_CI") == "1"
+
     if not WIKI_ROOT.exists():
         print("provenance_check: docs/wiki does not exist")
         return 1
 
-    manifest_paths = load_manifest_paths()
+    manifest_paths = {} if ci_mode else load_manifest_paths()
     checked = 0
     fresh = 0
     stale: list[tuple[str, str, str]] = []
@@ -81,6 +92,11 @@ def main() -> int:
 
         stored_hash = hash_match.group(1)
         checked += 1
+
+        if ci_mode:
+            # Structural check only: source_hash exists, that's all CI can verify.
+            fresh += 1
+            continue
 
         # Find the source file
         if not source_line:
@@ -130,9 +146,10 @@ def main() -> int:
             print(f"  {page}")
 
     if not stale and not no_hash and not unresolved:
+        suffix = " [ci-mode: structural check only]" if ci_mode else ""
         print(
             f"provenance_check: OK ({checked} checked, {fresh} fresh, "
-            f"{session_exempt} session-exempt, {len(no_hash)} without hash)"
+            f"{session_exempt} session-exempt){suffix}"
         )
         return 0
     return 1

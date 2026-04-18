@@ -40,6 +40,7 @@ TEMPLATE_TO_TARGET: list[tuple[str, str]] = [
     ("wiki/current-status.md", "docs/wiki/current-status.md"),
     ("wiki/sources-and-data.md", "docs/wiki/sources-and-data.md"),
     ("wiki/github-and-raw-strategy.md", "docs/wiki/github-and-raw-strategy.md"),
+    ("wiki/runtime-profile.md", "docs/wiki/runtime-profile.md"),
     ("manifests/README.md", "manifests/README.md"),
     ("manifests/raw_sources.csv", "manifests/raw_sources.csv"),
     ("manifests/raw_sources.meta.json", "manifests/raw_sources.meta.json"),

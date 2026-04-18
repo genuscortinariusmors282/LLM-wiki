@@ -253,6 +253,65 @@ def test_wiki_size_report_thresholds_promote(project: Path) -> None:
     assert "YELLOW" in result.stdout or "RED" in result.stdout
 
 
+def test_provenance_check_ci_mode_passes_without_raw(project: Path) -> None:
+    page = project / "docs" / "wiki" / "current-status.md"
+    page.write_text(
+        "---\n"
+        "title: Current Status\n"
+        "source: raw/example.pdf\n"
+        "source_hash: 0123456789abcdef\n"
+        "created: 2026-01-01\n"
+        "---\n"
+        "# X\n",
+        encoding="utf-8",
+    )
+    result = run([sys.executable, str(project / "scripts" / "provenance_check.py"), "--ci"])
+    assert result.returncode == 0, result.stdout
+    assert "ci-mode" in result.stdout
+
+
+def test_provenance_check_ci_mode_catches_missing_hash(project: Path) -> None:
+    page = project / "docs" / "wiki" / "current-status.md"
+    page.write_text(
+        "---\n"
+        "title: Current Status\n"
+        "source: raw/example.pdf\n"
+        "created: 2026-01-01\n"
+        "---\n"
+        "# X\n",
+        encoding="utf-8",
+    )
+    result = run([sys.executable, str(project / "scripts" / "provenance_check.py"), "--ci"])
+    assert result.returncode == 1
+    assert "without source_hash" in result.stdout
+
+
+def test_runtime_headers_present_on_all_scripts(project: Path) -> None:
+    scripts_dir = project / "scripts"
+    for script in scripts_dir.glob("*.py"):
+        head = "\n".join(script.read_text(encoding="utf-8").splitlines()[:30])
+        assert "# runtime:" in head, f"{script.name} missing # runtime: header in first 30 lines"
+
+
+def test_runtime_profile_wiki_page_exists(project: Path) -> None:
+    page = project / "docs" / "wiki" / "runtime-profile.md"
+    assert page.exists()
+    text = page.read_text(encoding="utf-8")
+    assert "ci-safe" in text
+    assert "dev-only" in text
+    index = (project / "docs" / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert "runtime-profile.md" in index
+
+
+def test_ci_workflow_only_runs_ci_safe_scripts(project: Path) -> None:
+    workflow = (project / ".github" / "workflows" / "wiki-lint.yml").read_text(encoding="utf-8")
+    if "provenance_check.py" in workflow:
+        assert "--ci" in workflow, "provenance_check in CI must use --ci"
+    forbidden_in_ci = ["stale_report.py", "delta_compile.py", "ingest_raw.py"]
+    for fname in forbidden_in_ci:
+        assert fname not in workflow, f"dev-only script {fname} found in CI workflow"
+
+
 def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "neverwritten"
     result = run([sys.executable, str(BOOTSTRAP), str(target), "X", "--dry-run"])

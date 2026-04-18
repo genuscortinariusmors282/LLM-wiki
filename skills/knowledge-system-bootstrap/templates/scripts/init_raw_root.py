@@ -1,4 +1,5 @@
 from __future__ import annotations
+# runtime: dev-only (one-shot setup)
 
 import argparse
 import os

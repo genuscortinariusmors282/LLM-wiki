@@ -1,5 +1,6 @@
 from __future__ import annotations
 # llm-wiki-version: 1.3.0
+# runtime: ci-safe (structural only)
 
 import re
 import sys

@@ -20,6 +20,7 @@ the hard context limit.
 """
 from __future__ import annotations
 # llm-wiki-version: 1.3.0
+# runtime: ci-safe (reads wiki only)
 
 import argparse
 import sys

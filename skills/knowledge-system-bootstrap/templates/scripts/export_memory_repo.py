@@ -1,4 +1,5 @@
 from __future__ import annotations
+# runtime: dev-only (writes outside repo)
 
 import argparse
 import shutil

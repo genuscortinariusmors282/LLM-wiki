@@ -63,10 +63,15 @@ LLM-wiki/
 │       ├── CLAUDE.md / AGENTS.md / .cursorrules / .windsurfrules
 │       ├── docs/wiki/              # 5 wiki pages with realistic content
 │       └── manifests/raw_sources.csv
+├── .claude-plugin/                 # Claude Code plugin manifest (1.3.0+)
+├── commands/                       # Plugin slash commands (/llm-wiki-bootstrap, /llm-wiki-status)
 ├── skills/
-│   └── knowledge-system-bootstrap/  # Codex skill for automated scaffolding
-│       └── scripts/bootstrap_knowledge_system.py  # Generates 30 files in one command
+│   └── knowledge-system-bootstrap/
+│       ├── scripts/bootstrap_knowledge_system.py  # 240-line renderer (was 2.6k LOC pre-1.3.0)
+│       └── templates/              # 32 standalone files: scripts, configs, wiki pages
+├── tests/                          # 35 pytest cases for bootstrap + every check
 └── scripts/
+    ├── bootstrap_knowledge_system.py   # Wrapper — always call this one
     └── install-codex-skill.sh
 ```
 
@@ -95,11 +100,21 @@ python3 scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
 python3 scripts/bootstrap_knowledge_system.py /path/to/your-project "My Project"
 ```
 
-**Always use `scripts/bootstrap_knowledge_system.py`** (the root wrapper). Never call the one inside `skills/` directly — that's the Codex skill's internal copy.
+**Always use `scripts/bootstrap_knowledge_system.py`** (the root wrapper). Never call the one inside `skills/` directly — that's the skill's internal copy.
 
-Generates 30 files: wiki structure, frontmatter templates, manifests, raw intake + stale reporting scripts, manual delta-compile scaffolds, validation scripts, Claude Code commands, CI workflow, and configs for 4 AI platforms.
+Generates 32 files: wiki structure, frontmatter templates, manifests + schema, raw intake + stale reporting scripts, manual delta-compile scaffolds, validation scripts (including `wiki_size_report.py` and `provenance_check.py --ci`), Claude Code commands, CI workflow, and configs for 4 AI platforms.
 
-### Option C: Install as Codex skill
+`--force` re-runs back up existing files to `<file>.bak.<timestamp>` before overwriting (pass `--no-backup` to opt out).
+
+### Option C: Install as a Claude Code plugin (1.3.0+)
+
+```text
+claude plugin install Ss1024sS/llm-wiki
+```
+
+Then use `/llm-wiki-bootstrap` to scaffold a project, or `/llm-wiki-status` to inspect an existing one.
+
+### Option D: Install as a Codex skill
 
 ```text
 Use $skill-installer to install https://github.com/Ss1024sS/LLM-wiki/tree/main/skills/knowledge-system-bootstrap
@@ -124,6 +139,8 @@ After 3 sessions, check:
 - [ ] `python3 scripts/ingest_raw.py` can register new raw files without manual manifest grunt work
 - [ ] `python3 scripts/stale_report.py` can tell you what needs recompilation
 - [ ] `python3 scripts/delta_compile.py --write-drafts` can generate draft stubs instead of silently overwriting wiki pages
+- [ ] `python3 scripts/wiki_size_report.py` shows GREEN — your wiki still fits in a single read
+- [ ] CI workflow (`wiki-lint`) passes on push without needing raw files mounted (see `docs/wiki/runtime-profile.md`)
 
 See `examples/demo-project/` for what a healthy wiki looks like after a few sessions.
 
@@ -164,7 +181,8 @@ bash scripts/upgrade.sh /path/to/your-project
 - [UNIVERSAL.md](./UNIVERSAL.md) — Setup guide + migration path + FAQ + templates for every AI
 - [docs/knowledge-system-playbook.md](./docs/knowledge-system-playbook.md) — Full rationale (CN+EN), GitHub/raw split, provenance roadmap
 - [docs/ingest-pipeline.md](./docs/ingest-pipeline.md) — How local raw intake, dedupe, parsing, and stale detection work
-- [docs/release-notes-v1.2.2.md](./docs/release-notes-v1.2.2.md) — Latest release: structured table diffs, manual delta-compile drafts, stricter provenance, and a smoke test that stops punching itself in the throat
+- [docs/release-notes-v1.3.0.md](./docs/release-notes-v1.3.0.md) — **Latest**: 2.6k→240 LOC bootstrap refactor, Claude plugin packaging, `wiki_size_report` with RAG thresholds, manifest schema versioning, `.bak` on `--force`, runtime profile per script
+- [docs/release-notes-v1.2.2.md](./docs/release-notes-v1.2.2.md) — Previous: structured table diffs, manual delta-compile drafts, stricter provenance
 - [examples/demo-project/](./examples/demo-project/) — What a bootstrapped project looks like after 3 sessions
 
 ---
